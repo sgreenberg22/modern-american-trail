@@ -1,13 +1,12 @@
-// src/App.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle, Heart, Battery, DollarSign, Users, MapPin, Settings,
   ShoppingCart, Package, Zap, Save, Upload, Map as MapIcon
 } from "lucide-react";
 
-/** -------------------------------------------------------------------------
- * Server helpers (Cloudflare Pages Functions)
- * ------------------------------------------------------------------------- */
+/* =========================================================================
+   Cloudflare Functions helpers
+   ========================================================================= */
 async function chat({ model, messages, max_tokens = 700 }) {
   const res = await fetch("/api/chat", {
     method: "POST",
@@ -22,7 +21,6 @@ async function chat({ model, messages, max_tokens = 700 }) {
   return data;
 }
 
-/** Safely extract a JSON object from a model response (which may contain backticks) */
 function parseJSONFromText(text) {
   if (!text || typeof text !== "string") throw new Error("Empty response");
   let t = text.trim();
@@ -40,9 +38,9 @@ function parseJSONFromText(text) {
   }
 }
 
-/** -------------------------------------------------------------------------
- * Fallback list (used if /api/models is unavailable)
- * ------------------------------------------------------------------------- */
+/* =========================================================================
+   Fallback free models (used if /api/models fails)
+   ========================================================================= */
 const FALLBACK_FREE_MODELS = [
   { id: "mistralai/mistral-7b-instruct:free", name: "Mistral 7B (Free)" },
   { id: "huggingfaceh4/zephyr-7b-beta:free", name: "Zephyr 7B (Free)" },
@@ -51,9 +49,9 @@ const FALLBACK_FREE_MODELS = [
   { id: "openchat/openchat-7b:free", name: "OpenChat 7B (Free)" }
 ];
 
-/** -------------------------------------------------------------------------
- * Game data & helpers
- * ------------------------------------------------------------------------- */
+/* =========================================================================
+   Game data & helpers
+   ========================================================================= */
 function generateLocations() {
   const baseLocations = [
     "Liberal Enclave of Portland",
@@ -83,13 +81,13 @@ function generateLocations() {
   const out = [];
   for (let i = 0; i < baseLocations.length - 1; i++) {
     out.push(baseLocations[i]);
-    const numProcedural = 2 + Math.floor(Math.random() * 3); // 2–4 between each main stop
+    const numProcedural = 2 + Math.floor(Math.random() * 3); // 2–4 between main stops
     for (let j = 0; j < numProcedural; j++) {
       const suffix = proceduralSuffixes[Math.floor(Math.random() * proceduralSuffixes.length)];
       out.push(`${suffix} ${String.fromCharCode(65 + i)}-${j + 1}`);
     }
   }
-  // ✅ Fixed: last base location + return
+  // ✅ critical final push that got mangled in your build
   out.push(baseLocations[baseLocations.length - 1]);
   return out;
 }
@@ -136,6 +134,57 @@ function newGameState() {
   };
 }
 
+/* =========================================================================
+   UI helpers
+   ========================================================================= */
+function Stat({ label, value, max = 100, icon: Icon, color = "#999" }) {
+  const pct = Math.min(100, Math.round((value / max) * 100));
+  return (
+    <div style={card()}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+        <Icon size={18} color={color} />
+        <div style={{ fontSize: 14, color: "#cfd6e4" }}>{label}</div>
+        <div style={{ marginLeft: "auto", fontWeight: 700, color }}>{max === 100 ? `${value}%` : value}</div>
+      </div>
+      <div style={{ height: 10, background: "#263042", borderRadius: 6, overflow: "hidden" }}>
+        <div style={{ width: `${pct}%`, background: color, height: "100%" }} />
+      </div>
+    </div>
+  );
+}
+
+function Row({ label, value }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between" }}>
+      <span>{label}</span>
+      <span>{value}</span>
+    </div>
+  );
+}
+
+function btn(bg = "#374151") {
+  return {
+    background: bg,
+    border: "1px solid rgba(255,255,255,0.07)",
+    color: "#fff",
+    borderRadius: 8,
+    padding: "10px 14px",
+    cursor: "pointer"
+  };
+}
+
+function card() {
+  return {
+    background: "linear-gradient(180deg,#141821,#10131a)",
+    border: "1px solid #232a36",
+    borderRadius: 12,
+    padding: 16
+  };
+}
+
+/* =========================================================================
+   Shop items
+   ========================================================================= */
 const shopItems = [
   { id: "supplies", name: "Underground Rations", description: "Black market food supplies to keep your party fed.", basePrice: 50, effect: { supplies: 30 }, icon: Package },
   { id: "medicine", name: "Bootleg Medicine", description: "Illegal healthcare supplies (banned by the regime).", basePrice: 80, effect: { health: 25, partyHealth: 15 }, icon: Heart },
@@ -144,24 +193,9 @@ const shopItems = [
   { id: "survival_kit", name: "Prepper's Survival Kit", description: "Everything you need to survive the wasteland.", basePrice: 150, effect: { supplies: 40, health: 15, partyHealth: 10 }, icon: AlertCircle }
 ];
 
-/** Simple stat block */
-function Stat({ label, value, max = 100, icon: Icon, color = "#999" }) {
-  const pct = Math.min(100, Math.round((value / max) * 100));
-  return (
-    <div className="card">
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-        <Icon size={18} color={color} />
-        <div style={{ fontSize: 14, color: "#cfd6e4" }}>{label}</div>
-        <div style={{ marginLeft: "auto", fontWeight: 700, color }}>{max === 100 ? `${value}%` : value}</div>
-      </div>
-      <div className="bar"><div style={{ width: `${pct}%`, background: color }} /></div>
-    </div>
-  );
-}
-
-/** -------------------------------------------------------------------------
- * App
- * ------------------------------------------------------------------------- */
+/* =========================================================================
+   App
+   ========================================================================= */
 export default function App() {
   const [g, setG] = useState(newGameState());
   const [models, setModels] = useState(FALLBACK_FREE_MODELS);
@@ -172,7 +206,7 @@ export default function App() {
   const isWin = currentLocation === "Safe Haven of Vermont" && g.health > 0;
   const isGameOver = g.health <= 0 || currentLocation === "Safe Haven of Vermont" || g.party.every(p => p.health <= 0);
 
-  // Fetch free models from /api/models on mount
+  // Load free models from server function on mount
   useEffect(() => {
     (async () => {
       try {
@@ -182,15 +216,10 @@ export default function App() {
         const list = Array.isArray(j?.models) ? j.models : [];
         if (list.length > 0) {
           setModels(list);
-          // if current model not in list, switch to the first free option
           setG(prev => {
             const has = list.some(m => m.id === prev.selectedModel);
             const nextId = has ? prev.selectedModel : list[0].id;
-            return {
-              ...prev,
-              selectedModel: nextId,
-              apiStats: { ...prev.apiStats, currentModel: nextId }
-            };
+            return { ...prev, selectedModel: nextId, apiStats: { ...prev.apiStats, currentModel: nextId } };
           });
         }
       } catch {
@@ -229,7 +258,6 @@ export default function App() {
       const msg = e?.message || "Connection failed";
       const noEndpoints = /no endpoints found/i.test(msg);
       setG(prev => {
-        // Auto-switch to next free model if the chosen one has no live endpoints
         let nextModel = prev.selectedModel;
         if (noEndpoints && models.length > 1) {
           const idx = models.findIndex(m => m.id === prev.selectedModel);
@@ -340,14 +368,6 @@ Respond with ONLY valid JSON in this exact format:
             { text: "Offer to buy overpriced corporate merchandise", effect: { health: 0, morale: -5, supplies: 0, money: -150, partyHealth: 0, partyMorale: 0, miles: 0, message: "Capitalism solves another problem through commerce." } },
             { text: "Challenge their authority", effect: { health: -25, morale: 0, supplies: 0, money: -200, partyHealth: -15, partyMorale: 0, miles: 0, message: "Corporate justice is swift and expensive." } }
           ]
-        },
-        {
-          title: "Regime Propaganda Broadcast",
-          description: "Loudspeakers force you to listen to a 3-hour speech about the 'dangers of independent thought.' Covering your ears is illegal.",
-          choices: [
-            { text: "Endure the propaganda session", effect: { health: -5, morale: -30, supplies: 0, money: 0, partyHealth: 0, partyMorale: -25, miles: 0, message: "Your brain feels violated by the forced indoctrination." } },
-            { text: "Pretend to be sick and leave", effect: { health: -15, morale: 0, supplies: 0, money: -50, partyHealth: 0, partyMorale: 0, miles: 0, message: "Fake illness costs money for medical exemption." } }
-          ]
         }
       ];
       setG(prev => ({
@@ -378,7 +398,6 @@ Respond with ONLY valid JSON in this exact format:
 
       let { currentLocationIndex, distanceToNext, totalDistance } = prev;
 
-      // forward movement if the choice grants miles
       const miles = e.miles || 0;
       if (miles > 0) {
         distanceToNext = Math.max(0, distanceToNext - miles);
@@ -483,190 +502,323 @@ Respond with ONLY valid JSON in this exact format:
   );
 
   return (
-    <div className="container" style={{ minHeight: "100vh", background: "linear-gradient(to bottom,#7f1d1d,#111827)", color: "#fff", padding: 16 }}>
-      {/* Header */}
-      <div className="hdr" style={{ textAlign: "center", marginBottom: 16 }}>
-        <h1 style={{ margin: 0, fontSize: 32, color: "#f87171" }}>The Modern American Trail</h1>
-        <div style={{ color: "#cbd5e1" }}>Escape the Dystopia • Survive the Journey • Find Freedom</div>
-        <div style={{ marginTop: 6, fontSize: 14, color: "#a3aab8" }}>
-          Day {g.day} • {g.health > 70 ? "☀️ Fair Weather" : g.health > 40 ? "⛅ Overcast" : "🌧️ Stormy"}
+    <div style={{ minHeight: "100vh", background: "linear-gradient(to bottom,#7f1d1d,#111827)", color: "#fff" }}>
+      <div style={{ maxWidth: 1100, margin: "0 auto", padding: 16 }}>
+        {/* Header */}
+        <div style={{ textAlign: "center", marginBottom: 16 }}>
+          <h1 style={{ margin: 0, fontSize: 32, color: "#f87171" }}>The Modern American Trail</h1>
+          <div style={{ color: "#cbd5e1" }}>Escape the Dystopia • Survive the Journey • Find Freedom</div>
+          <div style={{ marginTop: 6, fontSize: 14, color: "#a3aab8" }}>
+            Day {g.day} • {g.health > 70 ? "☀️ Fair Weather" : g.health > 40 ? "⛅ Overcast" : "🌧️ Stormy"}
+          </div>
+          <div style={{ marginTop: 8, fontSize: 12, display: "flex", gap: 8, justifyContent: "center" }}>
+            <span style={{ padding: "4px 8px", background: g.apiStats.connected ? "#064e3b" : "#7f1d1d", borderRadius: 6 }}>
+              {g.apiStats.connected ? "🟢 AI Connected" : "🔴 Fallback Events"}
+            </span>
+            <span style={{ padding: "4px 8px", background: "#1f2937", borderRadius: 6 }}>
+              Model: {g.selectedModel}
+            </span>
+          </div>
         </div>
-        <div style={{ marginTop: 8, fontSize: 12 }}>
-          <span className="tag" style={{ marginRight: 8, padding: "4px 8px", background: g.apiStats.connected ? "#064e3b" : "#7f1d1d", borderRadius: 6 }}>
-            {g.apiStats.connected ? "🟢 AI Connected" : "🔴 Fallback Events"}
-          </span>
-          <span className="tag" style={{ padding: "4px 8px", background: "#1f2937", borderRadius: 6 }}>
-            Model: {g.selectedModel}
-          </span>
-        </div>
-      </div>
 
-      {/* Controls */}
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginBottom: 12 }}>
-        <button className="btn" onClick={() => setG(p => ({ ...p, showMap: true }))} title="Map" style={btn()}>
-          <MapIcon size={18} />
-        </button>
-        <button className="btn" onClick={() => setG(p => ({ ...p, showShop: true }))} title="Black Market" style={btn("#16a34a")}>
-          <ShoppingCart size={18} />
-        </button>
-        <button className="btn" onClick={() => setG(p => ({ ...p, showSettings: true }))} title="Settings" style={btn("#3b82f6")}>
-          <Settings size={18} />
-        </button>
-        <button className="btn" onClick={() => setG(newGameState())} title="New Game" style={btn("#ea580c")}>
-          <Upload size={18} />
-        </button>
-        <button
-          className="btn"
-          onClick={() => {
-            const blob = new Blob([JSON.stringify(g, null, 2)], { type: "application/json" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `modern_trail_${isWin ? "victory" : "run"}_${g.day}days.json`;
-            a.click();
-          }}
-          title="Export Save"
-          style={btn("#8b5cf6")}
-        >
-          <Save size={18} />
-        </button>
-      </div>
+        {/* Controls */}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginBottom: 12 }}>
+          <button title="Map" style={btn()} onClick={() => setG(p => ({ ...p, showMap: true }))}><MapIcon size={18} /></button>
+          <button title="Black Market" style={btn("#16a34a")} onClick={() => setG(p => ({ ...p, showShop: true }))}><ShoppingCart size={18} /></button>
+          <button title="Settings" style={btn("#3b82f6")} onClick={() => setG(p => ({ ...p, showSettings: true }))}><Settings size={18} /></button>
+          <button title="New Game" style={btn("#ea580c")} onClick={() => setG(newGameState())}><Upload size={18} /></button>
+          <button
+            title="Export Save"
+            style={btn("#8b5cf6")}
+            onClick={() => {
+              const blob = new Blob([JSON.stringify(g, null, 2)], { type: "application/json" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `modern_trail_${isWin ? "victory" : "run"}_${g.day}days.json`;
+              a.click();
+            }}
+          >
+            <Save size={18} />
+          </button>
+        </div>
 
-      {/* Stats */}
-      <div className="row cols-4" style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", marginBottom: 16 }}>
-        <Stat label="Health" value={g.health} icon={Heart} color="#ef4444" />
-        <Stat label="Morale" value={g.morale} icon={Battery} color="#3b82f6" />
-        <Stat label="Supplies" value={g.supplies} icon={AlertCircle} color="#f59e0b" />
-        <Stat label="Money" value={g.money} max={1000} icon={DollarSign} color="#10b981" />
-      </div>
+        {/* Stats */}
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", marginBottom: 16 }}>
+          <Stat label="Health" value={g.health} icon={Heart} color="#ef4444" />
+          <Stat label="Morale" value={g.morale} icon={Battery} color="#3b82f6" />
+          <Stat label="Supplies" value={g.supplies} icon={AlertCircle} color="#f59e0b" />
+          <Stat label="Money" value={g.money} max={1000} icon={DollarSign} color="#10b981" />
+        </div>
 
-      {/* Location + progress */}
-      <div className="row cols-2" style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", marginBottom: 16 }}>
-        <div className="card" style={card()}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <MapPin size={18} color="#f87171" />
-            <div style={{ fontWeight: 700, color: "#fde68a" }}>{currentLocation}</div>
-            <div className="tag" style={{ marginLeft: "auto", background: "#1f2937", borderRadius: 6, padding: "2px 8px" }}>Day {g.day}</div>
-          </div>
-          <div style={{ fontSize: 14, color: "#aeb6c7", display: "grid", gap: 6 }}>
-            <Row label="Distance to next" value={<span className="mono" style={{ color: "#60a5fa" }}>{g.distanceToNext} miles</span>} />
-            <Row label="Total traveled" value={<span className="mono" style={{ color: "#34d399" }}>{g.totalDistance} miles</span>} />
-            <Row label="Progress" value={<span style={{ color: "#c084fc" }}>{g.currentLocationIndex}/{g.locations.length - 1}</span>} />
-          </div>
-        </div>
-        <div className="card" style={card()}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-            <MapIcon size={18} color="#60a5fa" /><div style={{ fontWeight: 600 }}>Journey Progress</div>
-          </div>
-          <div className="bar" style={{ background: "#374151", borderRadius: 999, height: 12, overflow: "hidden", marginBottom: 6 }}>
-            <div style={{
-              width: `${Math.max(6, progressPct)}%`,
-              background: "linear-gradient(90deg,#ef4444,#f59e0b,#10b981)",
-              height: "100%"
-            }} />
-          </div>
-          <div style={{ fontSize: 12, color: "#94a3b8", textAlign: "center" }}>{progressPct}% Complete</div>
-        </div>
-      </div>
-
-      {/* Main panel */}
-      {isGameOver ? (
-        <div className="card" style={{ ...card(), textAlign: "center", padding: 24 }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>{isWin ? "🏆" : "💀"}</div>
-          <h2 style={{ marginTop: 0 }}>{isWin ? "Victory!" : "Game Over"}</h2>
-          <p style={{ color: "#cbd5e1" }}>
-            {isWin
-              ? `Congratulations! You reached the Safe Haven of Vermont after ${g.day} days and ${g.totalDistance} miles.`
-              : "The dystopian regime has claimed another victim. Your journey ends in the wasteland."}
-          </p>
-          <div className="row cols-2" style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", marginTop: 12 }}>
-            <button className="btn" style={btn("#ef4444")} onClick={() => setG(newGameState())}>New Journey</button>
-            <button className="btn" style={btn("#3b82f6")} onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>Back to Top</button>
-          </div>
-        </div>
-      ) : g.currentEvent ? (
-        <div className="card" style={card()}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <AlertCircle size={20} color="#f87171" />
-            <h3 style={{ margin: 0, color: "#fca5a5" }}>{g.currentEvent.title}</h3>
-          </div>
-          <div className="card" style={{ ...card(), borderColor: "#7f1d1d" }}>
-            <p style={{ margin: 0, color: "#e5e7eb" }}>{g.currentEvent.description}</p>
-          </div>
-          <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
-            {g.currentEvent.choices.map((c, idx) => (
-              <button key={idx} className="btn" style={btn()} onClick={() => handleChoice(c)}>
-                <strong style={{ marginRight: 8 }}>{["🅰️","🅱️","🅲️","🅳️"][idx] || "➕"}</strong>{c.text}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className="card" style={{ ...card(), textAlign: "center" }}>
-          {g.isLoading ? (
-            <div>
-              <div style={{ fontSize: 24, marginBottom: 12 }}>🔄</div>
-              <div style={{ fontSize: 14, color: "#fde68a" }}>Consulting the resistance network...</div>
+        {/* Location + progress */}
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", marginBottom: 16 }}>
+          <div style={card()}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <MapPin size={18} color="#f87171" />
+              <div style={{ fontWeight: 700, color: "#fde68a" }}>{currentLocation}</div>
+              <div style={{ marginLeft: "auto", background: "#1f2937", borderRadius: 6, padding: "2px 8px" }}>Day {g.day}</div>
             </div>
-          ) : (
-            <>
-              <div style={{ fontSize: 28, marginBottom: 10 }}>🌅</div>
-              <p style={{ color: "#cbd5e1" }}>
-                Another day dawns in this authoritarian wasteland. What challenges await at{" "}
-                <span style={{ color: "#fde68a", fontWeight: 700 }}>{currentLocation}</span>?
-              </p>
-              <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-                <button className="btn" style={btn("#ef4444")} onClick={generateEvent}>Face the Day</button>
-                <button className="btn" style={btn("#3b82f6")} onClick={advanceDay}>Travel Forward</button>
-              </div>
-            </>
-          )}
+            <div style={{ fontSize: 14, color: "#aeb6c7", display: "grid", gap: 6 }}>
+              <Row label="Distance to next" value={<span style={{ color: "#60a5fa", fontFamily: "ui-monospace,monospace" }}>{g.distanceToNext} miles</span>} />
+              <Row label="Total traveled" value={<span style={{ color: "#34d399", fontFamily: "ui-monospace,monospace" }}>{g.totalDistance} miles</span>} />
+              <Row label="Progress" value={<span style={{ color: "#c084fc" }}>{g.currentLocationIndex}/{g.locations.length - 1}</span>} />
+            </div>
+          </div>
+          <div style={card()}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <MapIcon size={18} color="#60a5fa" /><div style={{ fontWeight: 600 }}>Journey Progress</div>
+            </div>
+            <div style={{ height: 12, background: "#374151", borderRadius: 999, overflow: "hidden", marginBottom: 6 }}>
+              <div style={{ width: `${Math.max(6, progressPct)}%`, background: "linear-gradient(90deg,#ef4444,#f59e0b,#10b981)", height: "100%" }} />
+            </div>
+            <div style={{ fontSize: 12, color: "#94a3b8", textAlign: "center" }}>{progressPct}% Complete</div>
+          </div>
         </div>
-      )}
 
-      {/* Party */}
-      <div className="card" style={{ ...card(), marginTop: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-          <Users size={18} color="#60a5fa" /><div style={{ fontWeight: 600, color: "#93c5fd" }}>Your Party</div>
-        </div>
-        <div className="row cols-2" style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))" }}>
-          {g.party.map((m, i) => {
-            let icon = "👤";
-            if (m.profession.includes("Tech")) icon = "💻";
-            else if (m.profession.includes("Teacher")) icon = "📚";
-            else if (m.profession.includes("Fact")) icon = "🔍";
-
-            return (
-              <div key={i} className="card" style={card()}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <div style={{ fontWeight: 700 }}>{icon} {m.name}</div>
-                  <div>{m.health <= 0 ? "💀" : "💚"}</div>
-                </div>
-                <div style={{ color: "#cbd5e1", fontSize: 14, marginTop: 4 }}>{m.profession}</div>
-                <div style={{ display: "grid", gap: 4, fontSize: 14, marginTop: 6 }}>
-                  <Row label="Health:" value={<strong style={{ color: m.health <= 30 ? "#f87171" : "#34d399" }}>{m.health}%</strong>} />
-                  <Row label="Morale:" value={<strong style={{ color: m.morale <= 30 ? "#fbbf24" : "#60a5fa" }}>{m.morale}%</strong>} />
-                </div>
-                {m.health <= 0 && <div className="tag" style={{ marginTop: 8, border: "1px solid #7f1d1d", color: "#fca5a5", padding: "3px 6px", borderRadius: 6 }}>Incapacitated</div>}
+        {/* Main panel */}
+        {isGameOver ? (
+          <div style={{ ...card(), textAlign: "center", padding: 24 }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>{isWin ? "🏆" : "💀"}</div>
+            <h2 style={{ marginTop: 0 }}>{isWin ? "Victory!" : "Game Over"}</h2>
+            <p style={{ color: "#cbd5e1" }}>
+              {isWin
+                ? `Congratulations! You reached the Safe Haven of Vermont after ${g.day} days and ${g.totalDistance} miles.`
+                : "The dystopian regime has claimed another victim. Your journey ends in the wasteland."}
+            </p>
+            <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", marginTop: 12 }}>
+              <button style={btn("#ef4444")} onClick={() => setG(newGameState())}>New Journey</button>
+              <button style={btn("#3b82f6")} onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>Back to Top</button>
+            </div>
+          </div>
+        ) : g.currentEvent ? (
+          <div style={card()}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <AlertCircle size={20} color="#f87171" />
+              <h3 style={{ margin: 0, color: "#fca5a5" }}>{g.currentEvent.title}</h3>
+            </div>
+            <div style={{ ...card(), borderColor: "#7f1d1d" }}>
+              <p style={{ margin: 0, color: "#e5e7eb" }}>{g.currentEvent.description}</p>
+            </div>
+            <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+              {g.currentEvent.choices.map((c, idx) => (
+                <button key={idx} style={btn()} onClick={() => handleChoice(c)}>
+                  <strong style={{ marginRight: 8 }}>{["🅰️","🅱️","🅲️","🅳️"][idx] || "➕"}</strong>{c.text}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div style={{ ...card(), textAlign: "center" }}>
+            {g.isLoading ? (
+              <div>
+                <div style={{ fontSize: 24, marginBottom: 12 }}>🔄</div>
+                <div style={{ fontSize: 14, color: "#fde68a" }}>Consulting the resistance network...</div>
               </div>
-            );
-          })}
+            ) : (
+              <>
+                <div style={{ fontSize: 28, marginBottom: 10 }}>🌅</div>
+                <p style={{ color: "#cbd5e1" }}>
+                  Another day dawns in this authoritarian wasteland. What challenges await at{" "}
+                  <span style={{ color: "#fde68a", fontWeight: 700 }}>{currentLocation}</span>?
+                </p>
+                <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+                  <button style={btn("#ef4444")} onClick={generateEvent}>Face the Day</button>
+                  <button style={btn("#3b82f6")} onClick={advanceDay}>Travel Forward</button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Party */}
+        <div style={{ ...card(), marginTop: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <Users size={18} color="#60a5fa" /><div style={{ fontWeight: 600, color: "#93c5fd" }}>Your Party</div>
+          </div>
+          <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))" }}>
+            {g.party.map((m, i) => {
+              let icon = "👤";
+              if (m.profession.includes("Tech")) icon = "💻";
+              else if (m.profession.includes("Teacher")) icon = "📚";
+              else if (m.profession.includes("Fact")) icon = "🔍";
+              return (
+                <div key={i} style={card()}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ fontWeight: 700 }}>{icon} {m.name}</div>
+                    <div>{m.health <= 0 ? "💀" : "💚"}</div>
+                  </div>
+                  <div style={{ color: "#cbd5e1", fontSize: 14, marginTop: 4 }}>{m.profession}</div>
+                  <div style={{ display: "grid", gap: 4, fontSize: 14, marginTop: 6 }}>
+                    <Row label="Health:" value={<strong style={{ color: m.health <= 30 ? "#f87171" : "#34d399" }}>{m.health}%</strong>} />
+                    <Row label="Morale:" value={<strong style={{ color: m.morale <= 30 ? "#fbbf24" : "#60a5fa" }}>{m.morale}%</strong>} />
+                  </div>
+                  {m.health <= 0 && (
+                    <div style={{ marginTop: 8, border: "1px solid #7f1d1d", color: "#fca5a5", padding: "3px 6px", borderRadius: 6 }}>
+                      Incapacitated
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Log */}
+        {g.gameLog.length > 0 && (
+          <div style={{ ...card(), marginTop: 16 }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Journey Log</div>
+            <div style={{ display: "grid", gap: 6, maxHeight: 180, overflowY: "auto" }}>
+              {g.gameLog.slice(-10).map((line, i) => (
+                <div key={i} style={{ color: "#cbd5e1", fontSize: 14 }}>
+                  <strong>Day {line.day}:</strong> {line.event} — {line.result}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Footer */}
+        <div style={{ textAlign: "center", marginTop: 18, color: "#8a93a6", fontSize: 12 }}>
+          Total locations: {g.locations.length} • Progress: {g.currentLocationIndex}/{g.locations.length - 1}
+          <div>A satirical Oregon Trail‑style game • Events are fictional commentary</div>
         </div>
       </div>
 
-      {/* Log */}
-      {g.gameLog.length > 0 && (
-        <div className="card" style={{ ...card(), marginTop: 16 }}>
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>Journey Log</div>
-          <div className="grid-log" style={{ display: "grid", gap: 6, maxHeight: 180, overflowY: "auto" }}>
-            {g.gameLog.slice(-10).map((line, i) => (
-              <div key={i} className="log-line" style={{ color: "#cbd5e1", fontSize: 14 }}>
-                <strong>Day {line.day}:</strong> {line.event} — {line.result}
+      {/* Settings Modal */}
+      {g.showSettings && (
+        <div style={modalBackdrop()}>
+          <div style={modal()}>
+            <h3 style={{ marginTop: 0 }}>Settings</h3>
+            <div style={{ ...card(), marginBottom: 12 }}>
+              <div style={{ fontWeight: 600, color: "#60a5fa", marginBottom: 6 }}>AI Connection</div>
+              <div style={{ display: "grid", gap: 8 }}>
+                <label>
+                  <div style={{ fontSize: 12, color: "#9aa3b2", marginBottom: 4 }}>Model (free only)</div>
+                  <select
+                    value={g.selectedModel}
+                    onChange={e => setG(p => ({ ...p, selectedModel: e.target.value, apiStats: { ...p.apiStats, currentModel: e.target.value } }))}
+                    style={{ width: "100%", padding: 10, background: "#0f1320", color: "#e5e7eb", border: "1px solid #232a36", borderRadius: 8 }}
+                    disabled={modelsLoading || models.length === 0}
+                  >
+                    {models.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  </select>
+                  {modelsLoading && <div style={{ fontSize: 12, color: "#9aa3b2", marginTop: 6 }}>Loading free models…</div>}
+                  {!modelsLoading && models.length === 0 && (
+                    <div style={{ fontSize: 12, color: "#fca5a5", marginTop: 6 }}>
+                      No free models available right now. Using built-in fallback list.
+                    </div>
+                  )}
+                </label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button style={btn("#3b82f6")} onClick={testAPIConnection}>Test Connection</button>
+                  <button style={btn("#6b7280")} onClick={() => setG(p => ({
+                    ...p, apiStats: { ...p.apiStats, totalCalls: 0, successfulCalls: 0, failedCalls: 0, totalTokensUsed: 0, lastError: null }
+                  }))}>
+                    Reset Stats
+                  </button>
+                </div>
+                <div style={{ fontSize: 12, color: "#9aa3b2" }}>
+                  Your API key is stored server‑side in Cloudflare Pages (as a secret) and never exposed in the browser.
+                </div>
+                {g.apiStats.lastError && (
+                  <div style={{ ...card(), borderColor: "#7f1d1d" }}>
+                    <strong>Last Error:</strong> {g.apiStats.lastError}
+                  </div>
+                )}
               </div>
-            ))}
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button style={btn()} onClick={() => setG(p => ({ ...p, showSettings: false }))}>Close</button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Footer */}
-      <div style={{ text
+      {/* Shop Modal */}
+      {g.showShop && (
+        <div style={modalBackdrop()}>
+          <div style={modal({ maxWidth: 900 })}>
+            <h3 style={{ marginTop: 0, color: "#34d399" }}>Underground Black Market</h3>
+            <p style={{ color: "#cbd5e1" }}>A shadowy figure emerges: “Got supplies for the resistance. Cash only, no questions.”</p>
+            <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", marginBottom: 12 }}>
+              {shopItems.map(item => {
+                const price = item.basePrice + Math.floor(Math.random() * 20) - 10;
+                const Icon = item.icon;
+                const afford = g.money >= price;
+                return (
+                  <div key={item.id} style={{ ...card(), opacity: afford ? 1 : 0.6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <Icon size={18} color="#34d399" /><strong>{item.name}</strong>
+                    </div>
+                    <div style={{ fontSize: 14, color: "#cbd5e1", marginTop: 4 }}>{item.description}</div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
+                      <div style={{ color: "#34d399", fontWeight: 700 }}>${price}</div>
+                      <button style={btn("#16a34a")} onClick={() => buyItem({ ...item, basePrice: price })} disabled={!afford}>
+                        {afford ? "Buy" : "No Cash"}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span>Your Money: ${g.money}</span>
+              <button style={btn()} onClick={() => setG(p => ({ ...p, showShop: false }))}>Leave Market</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Map Modal */}
+      {g.showMap && (
+        <div style={modalBackdrop()}>
+          <div style={modal({ maxWidth: 720 })}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <h3 style={{ marginTop: 0, color: "#60a5fa" }}>Journey Map</h3>
+              <button style={btn()} onClick={() => setG(p => ({ ...p, showMap: false }))}>Close</button>
+            </div>
+            <div style={card()}>
+              <div style={{ fontWeight: 700, marginBottom: 8, color: "#60a5fa" }}>Journey Progress</div>
+              <div style={{ height: 12, background: "#374151", borderRadius: 999, overflow: "hidden", marginBottom: 8 }}>
+                <div style={{ width: `${progressPct}%`, background: "linear-gradient(90deg,#ef4444,#f59e0b,#10b981)", height: "100%" }} />
+              </div>
+              <div style={{ display: "grid", gap: 4, fontSize: 14, color: "#cbd5e1" }}>
+                <Row label="Current Location:" value={<span style={{ color: "#fde68a" }}>{currentLocation}</span>} />
+                <Row label="Distance to Next:" value={<span style={{ color: "#60a5fa" }}>{g.distanceToNext} miles</span>} />
+                <Row label="Total Distance:" value={<span style={{ color: "#34d399" }}>{g.totalDistance} miles</span>} />
+                <Row label="Upcoming:" value={<span>{upcoming.join(" • ") || "—"}</span>} />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* =========================================================================
+   Modal styles
+   ========================================================================= */
+function modalBackdrop() {
+  return {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(0,0,0,0.75)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 16,
+    zIndex: 50
+  };
+}
+function modal(opts = {}) {
+  return {
+    width: "100%",
+    maxWidth: opts.maxWidth || 720,
+    background: "#141821",
+    border: "1px solid #232a36",
+    borderRadius: 12,
+    padding: 16
+  };
+}
