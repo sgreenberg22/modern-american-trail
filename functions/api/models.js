@@ -1,69 +1,88 @@
-/**
- * Cloudflare Pages Function: /api/models
- * Returns ONLY free chat models from OpenRouter.
- */
-export const onRequest = async ({ request, env }) => {
-  const origin = new URL(request.url).origin;
-  const corsHeaders = {
-    "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-  };
+// functions/api/models.js
 
-  if (request.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
-  if (request.method !== "GET") {
-    return new Response(JSON.stringify({ error: "Method Not Allowed" }), {
-      status: 405,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
+const ALLOWLIST = [
+  { id: "mistralai/mistral-7b-instruct:free", name: "Mistral 7B (Free)" },
+  { id: "huggingfaceh4/zephyr-7b-beta:free", name: "Zephyr 7B (Free)" },
+  { id: "microsoft/phi-3-mini-128k-instruct:free", name: "Phi-3 Mini 128k (Free)" },
+  { id: "qwen/qwen-2-7b-instruct:free", name: "Qwen 2 7B (Free)" },
+  { id: "openchat/openchat-7b:free", name: "OpenChat 7B (Free)" }
+];
 
+let CACHE = { at: 0, models: null };
+const TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+export async function onRequestGet({ env }) {
   try {
-    const res = await fetch("https://openrouter.ai/api/v1/models", {
-      headers: {
-        "Authorization": `Bearer ${env.OPENROUTER_API_KEY || ""}`,
-        "HTTP-Referer": env.SITE_URL || origin,
-        "X-Title": "Modern American Trail",
-      },
-    });
-
-    const text = await res.text();
-    let json;
-    try { json = JSON.parse(text); } catch {
-      return new Response(JSON.stringify({ error: "Bad upstream response", body: text.slice(0, 400) }), {
-        status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" }
-      });
+    const now = Date.now();
+    if (CACHE.models && (now - CACHE.at) < TTL_MS) {
+      return json({ models: CACHE.models, cached: true });
     }
 
-    const models = Array.isArray(json?.data) ? json.data : [];
+    const apiKey = env.OPENROUTER_API_KEY;
+    if (!apiKey) {
+      // No key? Just return the allowlist (client will still rotate on failure)
+      return json({ models: ALLOWLIST });
+    }
 
-    // Heuristics for "free": ID tagged :free OR zero pricing reported
-    const isZero = (x) => x === 0 || x === "0" || x === "0.0" || x === "0.000000";
-    const freeOnly = models
-      .filter(m => {
-        const id = m?.id || "";
-        const pricing = m?.pricing || {};
-        const zeroish = isZero(pricing.prompt) && isZero(pricing.completion);
-        // filter to chat-capable where possible; otherwise pass through
-        return id.includes(":free") || zeroish;
-      })
-      // Avoid the currently-problematic default you hit
-      .filter(m => m.id !== "meta-llama/llama-3.1-8b-instruct:free")
-      .map(m => ({ id: m.id, name: m.name || m.id }))
-      // uniqueness + sort
-      .filter((m, i, arr) => arr.findIndex(x => x.id === m.id) === i)
-      .sort((a, b) => a.name.localeCompare(b.name));
+    // Start from allowlist; intersect with OpenRouter catalog if possible
+    let candidates = [...ALLOWLIST];
+    try {
+      const r = await fetch("https://openrouter.ai/api/v1/models", {
+        headers: { "Authorization": `Bearer ${apiKey}` }
+      });
+      if (r.ok) {
+        const j = await r.json();
+        const ids = new Set((j?.data || j?.models || []).map(m => m.id));
+        if (ids.size) candidates = candidates.filter(m => ids.has(m.id));
+      }
+    } catch { /* ignore */ }
 
-    return new Response(JSON.stringify({ models: freeOnly }), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  } catch (e) {
-    return new Response(JSON.stringify({ error: e?.message || "Fetch failed" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    // Probe candidates with a tiny chat call
+    const probes = await Promise.all(candidates.map(m => probeModel(apiKey, m.id)));
+    const healthy = candidates
+      .map((m, i) => ({ ...m, healthy: probes[i].ok, latencyMs: probes[i].ms }))
+      .filter(m => m.healthy);
+
+    // Fallback: if none respond, at least return 1–2 models so UI isn't empty
+    const result = healthy.length ? healthy : candidates.slice(0, 2).map(m => ({ ...m, healthy: false }));
+
+    CACHE = { at: now, models: result };
+    return json({ models: result, cached: false });
+  } catch {
+    return json({ models: ALLOWLIST });
   }
-};
+}
+
+async function probeModel(apiKey, modelId) {
+  const controller = new AbortController();
+  const to = setTimeout(() => controller.abort(), 4000);
+  const started = Date.now();
+  try {
+    const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://pages.dev",
+        "X-Title": "Modern American Trail (model probe)"
+      },
+      body: JSON.stringify({
+        model: modelId,
+        messages: [{ role: "user", content: "OK" }],
+        max_tokens: 1,
+        temperature: 0
+      })
+    });
+    clearTimeout(to);
+    const ms = Date.now() - started;
+    return { ok: r.ok, ms };
+  } catch {
+    clearTimeout(to);
+    return { ok: false, ms: Date.now() - started };
+  }
+}
+
+function json(obj, status = 200) {
+  return new Response(JSON.stringify(obj), {
+    stat
