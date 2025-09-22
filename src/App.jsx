@@ -22,6 +22,7 @@ async function chat({ model, messages, max_tokens = 700 }) {
 function parseJSONFromText(text) {
   if (!text || typeof text !== "string") throw new Error("Empty response");
   let t = text.trim();
+  // strip ```json fences if present
   t = t.replace(/```json|```/gi, "").trim();
   try {
     return JSON.parse(t);
@@ -135,7 +136,9 @@ function Stat({ label, value, max = 100, icon: Icon, color = "#999" }) {
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
         <Icon size={18} color={color} />
         <div style={{ fontSize: 14, color: "#cfd6e4" }}>{label}</div>
-        <div style={{ marginLeft: "auto", fontWeight: 700, color }}>{max === 100 ? `${value}%` : value}</div>
+        <div style={{ marginLeft: "auto", fontWeight: 700, color }}>
+          {max === 100 ? `${value}%` : value}
+        </div>
       </div>
       <div style={{ height: 10, background: "#263042", borderRadius: 6, overflow: "hidden" }}>
         <div style={{ width: `${pct}%`, background: color, height: "100%" }} />
@@ -216,6 +219,7 @@ export default function App() {
   const isWin = currentLocation === "Safe Haven of Vermont" && g.health > 0;
   const isGameOver = g.health <= 0 || currentLocation === "Safe Haven of Vermont" || g.party.every(p => p.health <= 0);
 
+  // Load free models from our Cloudflare Function, fall back if it fails
   useEffect(() => {
     (async () => {
       try {
@@ -232,7 +236,7 @@ export default function App() {
           });
         }
       } catch {
-        /* keep fallback */
+        // keep fallback
       } finally {
         setModelsLoading(false);
       }
@@ -317,7 +321,7 @@ export default function App() {
       };
 
       const prompt =
-        `You are generating a satirical event for a dystopian Oregon Trail-style game called "The Modern American Trail" set in a conservative-controlled America in ${new Date().getFullYear() + 1}.
+`You are generating a satirical event for a dystopian Oregon Trail-style game called "The Modern American Trail" set in a conservative-controlled America in ${new Date().getFullYear() + 1}.
 Current game state: ${JSON.stringify(stateForPrompt)}
 Generate a sarcastic, darkly humorous event that mocks conservative extremism and authoritarianism. The event should be relevant to the current location "${currentLocation}".
 Consider the party's health/morale. Include 2-3 meaningful choices that affect game stats realistically.
@@ -495,6 +499,7 @@ Respond with ONLY valid JSON in this exact format:
       return next;
     });
 
+    // Trigger a fresh event shortly after traveling
     setTimeout(() => {
       setG(curr => {
         if (!curr.currentEvent) generateEvent();
@@ -511,6 +516,7 @@ Respond with ONLY valid JSON in this exact format:
   return (
     <div style={{ minHeight: "100vh", background: "linear-gradient(to bottom,#7f1d1d,#111827)", color: "#fff" }}>
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: 16 }}>
+        {/* Header */}
         <div style={{ textAlign: "center", marginBottom: 16 }}>
           <h1 style={{ margin: 0, fontSize: 32, color: "#f87171" }}>The Modern American Trail</h1>
           <div style={{ color: "#cbd5e1" }}>Escape the Dystopia • Survive the Journey • Find Freedom</div>
@@ -527,6 +533,7 @@ Respond with ONLY valid JSON in this exact format:
           </div>
         </div>
 
+        {/* Action buttons */}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginBottom: 12 }}>
           <button title="Map" style={btn()} onClick={() => setG(p => ({ ...p, showMap: true }))}><MapIcon size={18} /></button>
           <button title="Black Market" style={btn("#16a34a")} onClick={() => setG(p => ({ ...p, showShop: true }))}><ShoppingCart size={18} /></button>
@@ -548,6 +555,7 @@ Respond with ONLY valid JSON in this exact format:
           </button>
         </div>
 
+        {/* Stats */}
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", marginBottom: 16 }}>
           <Stat label="Health" value={g.health} icon={Heart} color="#ef4444" />
           <Stat label="Morale" value={g.morale} icon={Battery} color="#3b82f6" />
@@ -555,6 +563,7 @@ Respond with ONLY valid JSON in this exact format:
           <Stat label="Money" value={g.money} max={1000} icon={DollarSign} color="#10b981" />
         </div>
 
+        {/* Location + Progress */}
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", marginBottom: 16 }}>
           <div style={card()}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -579,6 +588,7 @@ Respond with ONLY valid JSON in this exact format:
           </div>
         </div>
 
+        {/* Main game area */}
         {isGameOver ? (
           <div style={{ ...card(), textAlign: "center", padding: 24 }}>
             <div style={{ fontSize: 48, marginBottom: 12 }}>{isWin ? "🏆" : "💀"}</div>
@@ -633,6 +643,7 @@ Respond with ONLY valid JSON in this exact format:
           </div>
         )}
 
+        {/* Party */}
         <div style={{ ...card(), marginTop: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
             <Users size={18} color="#60a5fa" /><div style={{ fontWeight: 600, color: "#93c5fd" }}>Your Party</div>
@@ -665,6 +676,7 @@ Respond with ONLY valid JSON in this exact format:
           </div>
         </div>
 
+        {/* Log */}
         {g.gameLog.length > 0 && (
           <div style={{ ...card(), marginTop: 16 }}>
             <div style={{ fontWeight: 600, marginBottom: 6 }}>Journey Log</div>
@@ -684,6 +696,7 @@ Respond with ONLY valid JSON in this exact format:
         </div>
       </div>
 
+      {/* Settings Modal */}
       {g.showSettings && (
         <div style={modalBackdrop()}>
           <div style={modal()}>
@@ -733,6 +746,7 @@ Respond with ONLY valid JSON in this exact format:
         </div>
       )}
 
+      {/* Shop Modal */}
       {g.showShop && (
         <div style={modalBackdrop()}>
           <div style={modal({ maxWidth: 900 })}>
@@ -767,6 +781,7 @@ Respond with ONLY valid JSON in this exact format:
         </div>
       )}
 
+      {/* Map Modal */}
       {g.showMap && (
         <div style={modalBackdrop()}>
           <div style={modal({ maxWidth: 720 })}>
