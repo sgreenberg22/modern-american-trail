@@ -4,9 +4,7 @@ import {
   ShoppingCart, Package, Zap, Save, Upload, Map as MapIcon
 } from "lucide-react";
 
-/* =========================================================================
-   Cloudflare Functions helpers
-   ========================================================================= */
+/* -------------------- Cloudflare Functions helpers -------------------- */
 async function chat({ model, messages, max_tokens = 700 }) {
   const res = await fetch("/api/chat", {
     method: "POST",
@@ -38,9 +36,7 @@ function parseJSONFromText(text) {
   }
 }
 
-/* =========================================================================
-   Fallback free models (used if /api/models fails)
-   ========================================================================= */
+/* -------------------- Fallback free models -------------------- */
 const FALLBACK_FREE_MODELS = [
   { id: "mistralai/mistral-7b-instruct:free", name: "Mistral 7B (Free)" },
   { id: "huggingfaceh4/zephyr-7b-beta:free", name: "Zephyr 7B (Free)" },
@@ -49,9 +45,7 @@ const FALLBACK_FREE_MODELS = [
   { id: "openchat/openchat-7b:free", name: "OpenChat 7B (Free)" }
 ];
 
-/* =========================================================================
-   Game data & helpers
-   ========================================================================= */
+/* -------------------- Game data & helpers -------------------- */
 function generateLocations() {
   const baseLocations = [
     "Liberal Enclave of Portland",
@@ -81,13 +75,12 @@ function generateLocations() {
   const out = [];
   for (let i = 0; i < baseLocations.length - 1; i++) {
     out.push(baseLocations[i]);
-    const numProcedural = 2 + Math.floor(Math.random() * 3); // 2–4 between main stops
+    const numProcedural = 2 + Math.floor(Math.random() * 3);
     for (let j = 0; j < numProcedural; j++) {
       const suffix = proceduralSuffixes[Math.floor(Math.random() * proceduralSuffixes.length)];
       out.push(`${suffix} ${String.fromCharCode(65 + i)}-${j + 1}`);
     }
   }
-  // ✅ critical final push that got mangled in your build
   out.push(baseLocations[baseLocations.length - 1]);
   return out;
 }
@@ -117,7 +110,7 @@ function newGameState() {
     showMap: false,
     lastError: null,
     totalDistance: 0,
-    distanceToNext: Math.floor(Math.random() * 50) + 30, // 30–80
+    distanceToNext: Math.floor(Math.random() * 50) + 30,
     milesPerDay: 0,
     gameStartTime: Date.now(),
     difficulty: "normal",
@@ -134,9 +127,7 @@ function newGameState() {
   };
 }
 
-/* =========================================================================
-   UI helpers
-   ========================================================================= */
+/* -------------------- UI helpers -------------------- */
 function Stat({ label, value, max = 100, icon: Icon, color = "#999" }) {
   const pct = Math.min(100, Math.round((value / max) * 100));
   return (
@@ -182,9 +173,30 @@ function card() {
   };
 }
 
-/* =========================================================================
-   Shop items
-   ========================================================================= */
+function modalBackdrop() {
+  return {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(0,0,0,0.75)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 16,
+    zIndex: 50
+  };
+}
+function modal(opts = {}) {
+  return {
+    width: "100%",
+    maxWidth: opts.maxWidth || 720,
+    background: "#141821",
+    border: "1px solid #232a36",
+    borderRadius: 12,
+    padding: 16
+  };
+}
+
+/* -------------------- Shop items -------------------- */
 const shopItems = [
   { id: "supplies", name: "Underground Rations", description: "Black market food supplies to keep your party fed.", basePrice: 50, effect: { supplies: 30 }, icon: Package },
   { id: "medicine", name: "Bootleg Medicine", description: "Illegal healthcare supplies (banned by the regime).", basePrice: 80, effect: { health: 25, partyHealth: 15 }, icon: Heart },
@@ -193,9 +205,7 @@ const shopItems = [
   { id: "survival_kit", name: "Prepper's Survival Kit", description: "Everything you need to survive the wasteland.", basePrice: 150, effect: { supplies: 40, health: 15, partyHealth: 10 }, icon: AlertCircle }
 ];
 
-/* =========================================================================
-   App
-   ========================================================================= */
+/* -------------------- App -------------------- */
 export default function App() {
   const [g, setG] = useState(newGameState());
   const [models, setModels] = useState(FALLBACK_FREE_MODELS);
@@ -206,7 +216,6 @@ export default function App() {
   const isWin = currentLocation === "Safe Haven of Vermont" && g.health > 0;
   const isGameOver = g.health <= 0 || currentLocation === "Safe Haven of Vermont" || g.party.every(p => p.health <= 0);
 
-  // Load free models from server function on mount
   useEffect(() => {
     (async () => {
       try {
@@ -223,7 +232,7 @@ export default function App() {
           });
         }
       } catch {
-        // keep fallback silently
+        /* keep fallback */
       } finally {
         setModelsLoading(false);
       }
@@ -393,11 +402,10 @@ Respond with ONLY valid JSON in this exact format:
       const party = prev.party.map(m => ({
         ...m,
         health: Math.max(0, Math.min(100, m.health + (e.partyHealth || 0))),
-        morale: Math.max(0, Math.min(100, m.morale + (e.partyMorale || 0))),
+        morale: Math.max(0, Math.min(100, m.morale + (e.partyMorale || 0)))
       }));
 
       let { currentLocationIndex, distanceToNext, totalDistance } = prev;
-
       const miles = e.miles || 0;
       if (miles > 0) {
         distanceToNext = Math.max(0, distanceToNext - miles);
@@ -433,7 +441,7 @@ Respond with ONLY valid JSON in this exact format:
       const party = prev.party.map(m => ({
         ...m,
         health: Math.min(100, m.health + (item.effect.partyHealth || 0)),
-        morale: Math.min(100, m.morale + (item.effect.partyMorale || 0)),
+        morale: Math.min(100, m.morale + (item.effect.partyMorale || 0))
       }));
       return {
         ...prev,
@@ -469,7 +477,7 @@ Respond with ONLY valid JSON in this exact format:
       const newParty = prev.party.map(m => ({
         ...m,
         health: Math.max(0, m.health - (2 + Math.floor(Math.random() * 5))),
-        morale: Math.max(0, m.morale - (3 + Math.floor(Math.random() * 6))),
+        morale: Math.max(0, m.morale - (3 + Math.floor(Math.random() * 6)))
       }));
 
       const next = {
@@ -487,7 +495,6 @@ Respond with ONLY valid JSON in this exact format:
       return next;
     });
 
-    // Try to create a narrative event after travel
     setTimeout(() => {
       setG(curr => {
         if (!curr.currentEvent) generateEvent();
@@ -504,7 +511,6 @@ Respond with ONLY valid JSON in this exact format:
   return (
     <div style={{ minHeight: "100vh", background: "linear-gradient(to bottom,#7f1d1d,#111827)", color: "#fff" }}>
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: 16 }}>
-        {/* Header */}
         <div style={{ textAlign: "center", marginBottom: 16 }}>
           <h1 style={{ margin: 0, fontSize: 32, color: "#f87171" }}>The Modern American Trail</h1>
           <div style={{ color: "#cbd5e1" }}>Escape the Dystopia • Survive the Journey • Find Freedom</div>
@@ -521,7 +527,6 @@ Respond with ONLY valid JSON in this exact format:
           </div>
         </div>
 
-        {/* Controls */}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginBottom: 12 }}>
           <button title="Map" style={btn()} onClick={() => setG(p => ({ ...p, showMap: true }))}><MapIcon size={18} /></button>
           <button title="Black Market" style={btn("#16a34a")} onClick={() => setG(p => ({ ...p, showShop: true }))}><ShoppingCart size={18} /></button>
@@ -543,7 +548,6 @@ Respond with ONLY valid JSON in this exact format:
           </button>
         </div>
 
-        {/* Stats */}
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", marginBottom: 16 }}>
           <Stat label="Health" value={g.health} icon={Heart} color="#ef4444" />
           <Stat label="Morale" value={g.morale} icon={Battery} color="#3b82f6" />
@@ -551,7 +555,6 @@ Respond with ONLY valid JSON in this exact format:
           <Stat label="Money" value={g.money} max={1000} icon={DollarSign} color="#10b981" />
         </div>
 
-        {/* Location + progress */}
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", marginBottom: 16 }}>
           <div style={card()}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -576,7 +579,6 @@ Respond with ONLY valid JSON in this exact format:
           </div>
         </div>
 
-        {/* Main panel */}
         {isGameOver ? (
           <div style={{ ...card(), textAlign: "center", padding: 24 }}>
             <div style={{ fontSize: 48, marginBottom: 12 }}>{isWin ? "🏆" : "💀"}</div>
@@ -631,7 +633,6 @@ Respond with ONLY valid JSON in this exact format:
           </div>
         )}
 
-        {/* Party */}
         <div style={{ ...card(), marginTop: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
             <Users size={18} color="#60a5fa" /><div style={{ fontWeight: 600, color: "#93c5fd" }}>Your Party</div>
@@ -664,7 +665,6 @@ Respond with ONLY valid JSON in this exact format:
           </div>
         </div>
 
-        {/* Log */}
         {g.gameLog.length > 0 && (
           <div style={{ ...card(), marginTop: 16 }}>
             <div style={{ fontWeight: 600, marginBottom: 6 }}>Journey Log</div>
@@ -678,14 +678,12 @@ Respond with ONLY valid JSON in this exact format:
           </div>
         )}
 
-        {/* Footer */}
         <div style={{ textAlign: "center", marginTop: 18, color: "#8a93a6", fontSize: 12 }}>
           Total locations: {g.locations.length} • Progress: {g.currentLocationIndex}/{g.locations.length - 1}
-          <div>A satirical Oregon Trail‑style game • Events are fictional commentary</div>
+          <div>A satirical Oregon Trail-style game • Events are fictional commentary</div>
         </div>
       </div>
 
-      {/* Settings Modal */}
       {g.showSettings && (
         <div style={modalBackdrop()}>
           <div style={modal()}>
@@ -719,7 +717,7 @@ Respond with ONLY valid JSON in this exact format:
                   </button>
                 </div>
                 <div style={{ fontSize: 12, color: "#9aa3b2" }}>
-                  Your API key is stored server‑side in Cloudflare Pages (as a secret) and never exposed in the browser.
+                  Your API key is stored server-side in Cloudflare Pages and never exposed in the browser.
                 </div>
                 {g.apiStats.lastError && (
                   <div style={{ ...card(), borderColor: "#7f1d1d" }}>
@@ -735,7 +733,6 @@ Respond with ONLY valid JSON in this exact format:
         </div>
       )}
 
-      {/* Shop Modal */}
       {g.showShop && (
         <div style={modalBackdrop()}>
           <div style={modal({ maxWidth: 900 })}>
@@ -770,7 +767,6 @@ Respond with ONLY valid JSON in this exact format:
         </div>
       )}
 
-      {/* Map Modal */}
       {g.showMap && (
         <div style={modalBackdrop()}>
           <div style={modal({ maxWidth: 720 })}>
@@ -795,30 +791,4 @@ Respond with ONLY valid JSON in this exact format:
       )}
     </div>
   );
-}
-
-/* =========================================================================
-   Modal styles
-   ========================================================================= */
-function modalBackdrop() {
-  return {
-    position: "fixed",
-    inset: 0,
-    background: "rgba(0,0,0,0.75)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 16,
-    zIndex: 50
-  };
-}
-function modal(opts = {}) {
-  return {
-    width: "100%",
-    maxWidth: opts.maxWidth || 720,
-    background: "#141821",
-    border: "1px solid #232a36",
-    borderRadius: 12,
-    padding: 16
-  };
 }
