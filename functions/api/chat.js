@@ -1,79 +1,76 @@
 // functions/api/chat.js
-export const onRequest = async ({ request, env }) => {
-  const origin = new URL(request.url).origin;
-  const cors = {
-    "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Content-Type": "application/json"
-  };
+// Server-side proxy to OpenRouter so your browser never sees the API key.
 
-  if (request.method === "OPTIONS") {
-    return new Response(null, { headers: cors });
-  }
-  if (request.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method Not Allowed" }), {
-      status: 405,
-      headers: cors
-    });
-  }
-
-  if (!env.OPENROUTER_API_KEY) {
-    return new Response(JSON.stringify({ error: "Server is missing OPENROUTER_API_KEY" }), {
-      status: 500,
-      headers: cors
-    });
-  }
-
-  let payload;
-  try {
-    payload = await request.json();
-  } catch {
-    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
-      status: 400,
-      headers: cors
-    });
-  }
-
-  const { model, messages, max_tokens = 700, ...rest } = payload || {};
-  if (!model || !Array.isArray(messages)) {
-    return new Response(JSON.stringify({ error: "Missing model or messages[]" }), {
-      status: 400,
-      headers: cors
-    });
-  }
+export async function onRequestPost(context) {
+  const { request, env } = context;
 
   try {
-    const upstream = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const { model, messages, max_tokens = 700, temperature = 0.7 } = await request.json();
+
+    if (!model || !Array.isArray(messages)) {
+      return new Response(JSON.stringify({ error: "Missing model or messages" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+
+    const apiKey = env.OPENROUTER_API_KEY;
+    if (!apiKey) {
+      return new Response(JSON.stringify({ error: "Server missing OPENROUTER_API_KEY" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+
+    const referer = request.headers.get("origin") || "https://pages.dev";
+
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${env.OPENROUTER_API_KEY}`,
+        "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": env.SITE_URL || origin,   // helpful for OpenRouter routing
+        "HTTP-Referer": referer,
         "X-Title": "Modern American Trail"
       },
-      body: JSON.stringify({ model, messages, max_tokens, ...rest })
+      body: JSON.stringify({
+        model,
+        messages,
+        max_tokens,
+        temperature
+      })
     });
 
-    const text = await upstream.text();
-    let json;
-    try { json = JSON.parse(text); } catch {
-      return new Response(JSON.stringify({ error: "Bad upstream response", body: text.slice(0, 400) }), {
-        status: 502, headers: cors
+    const text = await res.text(); // pass through raw
+    if (!res.ok) {
+      // Try to extract OpenRouter error message for easier debugging
+      let message = `OpenRouter error (${res.status})`;
+      try {
+        const j = JSON.parse(text);
+        message = j?.error?.message || j?.message || message;
+      } catch {
+        message = `${message}: ${text}`;
+      }
+      return new Response(JSON.stringify({ error: message }), {
+        status: res.status,
+        headers: { "Content-Type": "application/json" }
       });
     }
 
-    if (!upstream.ok) {
-      const message = json?.error?.message || json?.message || upstream.statusText;
-      return new Response(JSON.stringify({ error: message, status: upstream.status, data: json }), {
-        status: upstream.status, headers: cors
-      });
-    }
-
-    return new Response(JSON.stringify(json), { status: 200, headers: cors });
+    return new Response(text, { headers: { "Content-Type": "application/json" } });
   } catch (e) {
-    return new Response(JSON.stringify({ error: e?.message || "Request failed" }), {
-      status: 500, headers: cors
+    return new Response(JSON.stringify({ error: e?.message || "Unhandled error" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" }
     });
   }
-};
+}
+
+export async function onRequestOptions() {
+  return new Response(null, {
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization"
+    }
+  });
+}
