@@ -64,4 +64,16 @@ export const onRequest = async ({ request, env }) => {
     }
 
     if (!upstream.ok) {
-      const message = json?.error?.message || jso
+      const message = json?.error?.message || json?.message || upstream.statusText;
+      return new Response(JSON.stringify({ error: message, status: upstream.status, data: json }), {
+        status: upstream.status, headers: cors
+      });
+    }
+
+    return new Response(JSON.stringify(json), { status: 200, headers: cors });
+  } catch (e) {
+    return new Response(JSON.stringify({ error: e?.message || "Request failed" }), {
+      status: 500, headers: cors
+    });
+  }
+};
