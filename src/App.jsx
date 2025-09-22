@@ -667,3 +667,9 @@ Respond with ONLY valid JSON in this exact format:
           </div>
         </div>
       )}
+
+      {/* Add any additional UI sections here */}
+      </div> {/* Close main container div if needed */}
+    );
+  }
+
