@@ -152,7 +152,7 @@ function newGameState(defaultModelId) {
     difficulty: "normal",
     stuckDays: 0,
     jailed: false,
-    lastOutcome: null,       // <— NEW: shows the immediate outcome of a decision
+    lastOutcome: null,
     apiStats: {
       connected: false,
       totalCalls: 0,
@@ -173,15 +173,17 @@ function Stat({ label, value, max = 100, icon: Icon, color = "#999" }) {
   const pct = Math.min(100, Math.max(0, Math.round((value / max) * 100)));
   return (
     <div style={card()}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-        <Icon size={18} color={color} />
-        <div style={{ fontSize: 14, color: "#cfd6e4" }}>{label}</div>
-        <div style={{ marginLeft: "auto", fontWeight: 700, color }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+        <div style={{ padding: 6, borderRadius: 10, background: "rgba(255,255,255,0.06)", backdropFilter: "blur(2px)" }}>
+          <Icon size={18} color={color} />
+        </div>
+        <div style={{ fontSize: 13, color: "#cfd6e4" }}>{label}</div>
+        <div style={{ marginLeft: "auto", fontWeight: 800, color }}>
           {max === 100 ? `${value}%` : value}
         </div>
       </div>
-      <div style={{ height: 10, background: "#263042", borderRadius: 6, overflow: "hidden" }}>
-        <div style={{ width: `${pct}%`, background: color, height: "100%" }} />
+      <div style={{ height: 10, background: "rgba(255,255,255,0.06)", borderRadius: 999, overflow: "hidden" }}>
+        <div style={{ width: `${pct}%`, background: color, height: "100%", transition: "width .35s ease" }} />
       </div>
     </div>
   );
@@ -194,20 +196,49 @@ function Row({ label, value }) {
     </div>
   );
 }
-function btn(bg = "#374151") {
+function btn(bg = "#2b2f44") {
   return {
-    background: bg, border: "1px solid rgba(255,255,255,0.07)", color: "#fff",
-    borderRadius: 8, padding: "10px 14px", cursor: "pointer"
+    background: bg,
+    border: "1px solid rgba(255,255,255,0.10)",
+    color: "#fff",
+    borderRadius: 12,
+    padding: "12px 16px",
+    cursor: "pointer",
+    fontWeight: 700,
+    transition: "transform .1s ease, opacity .2s ease",
+  };
+}
+function primaryBtn() {
+  return {
+    ...btn("linear-gradient(90deg,#f43f5e,#f97316,#22c55e)"),
+    border: "none",
+    boxShadow: "0 8px 24px rgba(0,0,0,0.35)"
+  };
+}
+function chip(bg = "#0b1220") {
+  return {
+    padding: "6px 10px",
+    background: bg,
+    border: "1px solid rgba(255,255,255,0.1)",
+    borderRadius: 999,
+    fontSize: 12
   };
 }
 function card() {
-  return { background: "linear-gradient(180deg,#141821,#10131a)", border: "1px solid #232a36", borderRadius: 12, padding: 16 };
+  return {
+    background: "rgba(12,18,32,0.75)",
+    border: "1px solid rgba(255,255,255,0.10)",
+    borderRadius: 16,
+    padding: 16,
+    boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+    backdropFilter: "blur(6px)"
+  };
 }
 function modalBackdrop() {
-  return { position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 };
+  return { position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 };
 }
 function modal(opts = {}) {
-  return { width: "100%", maxWidth: opts.maxWidth || 720, background: "#141821", border: "1px solid #232a36", borderRadius: 12, padding: 16 };
+  return { width: "100%", maxWidth: opts.maxWidth || 720, background: "rgba(12,18,32,0.9)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 16, padding: 16, backdropFilter: "blur(10px)" };
 }
 
 /* ------------------------------------------------------------------ */
@@ -251,7 +282,6 @@ export default function App() {
           const healthy = list.filter(m => m.healthy);
           const next = healthy.length > 0 ? healthy : list;
           setModels(next);
-
           setG(prev => {
             const has = next.some(m => m.id === prev.selectedModel);
             const nextId = has ? prev.selectedModel : (next.find(m => m.healthy)?.id || next[0].id);
@@ -421,7 +451,6 @@ export default function App() {
     const lines = [];
     const arrow = (v) => (v > 0 ? "▲" : "▼");
 
-    // Core stats
     if (eff.health) lines.push(`Health: ${after.health}% (${arrow(eff.health)}${Math.abs(eff.health)}%)`);
     if (eff.morale) lines.push(`Morale: ${after.morale}% (${arrow(eff.morale)}${Math.abs(eff.morale)}%)`);
     if (eff.supplies) lines.push(`Supplies: ${after.supplies}% (${arrow(eff.supplies)}${Math.abs(eff.supplies)}%)`);
@@ -430,12 +459,10 @@ export default function App() {
       lines.push(`Money: $${after.money} (${sign}$${Math.abs(eff.money)})`);
     }
 
-    // Party-wide effects
     if (eff.partyHealth) lines.push(`Party health: ${arrow(eff.partyHealth)}${Math.abs(eff.partyHealth)}% each`);
     if (eff.partyMorale) lines.push(`Party morale: ${arrow(eff.partyMorale)}${Math.abs(eff.partyMorale)}% each`);
     if (eff.partyMemberLoss) lines.push("A party member left the group.");
 
-    // Movement / status
     if (eff.miles) lines.push(`Advanced ${eff.miles} mile${eff.miles === 1 ? "" : "s"}.`);
     if (eff.milesBack) lines.push(`Backtracked ${eff.milesBack} mile${eff.milesBack === 1 ? "" : "s"}.`);
     if (movedIndexDelta > 0) {
@@ -447,7 +474,6 @@ export default function App() {
     if (eff.endGame === "win") lines.push("You reached your destination!");
     if (eff.endGame === "lose") lines.push("You perished.");
 
-    // Always include the model’s short narrative line if present
     if (eff.message) lines.unshift(eff.message);
 
     return lines;
@@ -579,11 +605,11 @@ ${schema}`;
   function handleChoice(choice) {
     const eff = sanitizeEffect(choice.effect || {});
     setG(prev => {
-      // Pre-calc movement & status to know if we changed location
+      const wasStuck = prev.stuckDays > 0;
+
       const move = applyMovementAndStatus(prev, eff);
       const movedIndexDelta = move.currentLocationIndex - prev.currentLocationIndex;
 
-      // Apply party effects
       let party = prev.party.map(m => ({
         ...m,
         health: Math.max(0, Math.min(100, m.health + (eff.partyHealth || 0))),
@@ -591,21 +617,16 @@ ${schema}`;
       }));
       if (eff.partyMemberLoss && party.length > 0) party = party.slice(0, -1);
 
-      // Core stat updates
       let nextHealth = Math.max(0, Math.min(100, prev.health + (eff.health || 0)));
       if (eff.endGame === "lose") nextHealth = 0;
 
-      const afterBase = {
+      let after = {
         ...prev,
         health: nextHealth,
         morale: Math.max(0, Math.min(100, prev.morale + (eff.morale || 0))),
         supplies: Math.max(0, Math.min(100, prev.supplies + (eff.supplies || 0))),
         money: Math.max(0, prev.money + (eff.money || 0)),
-        party
-      };
-
-      const after = {
-        ...afterBase,
+        party,
         currentLocationIndex: move.currentLocationIndex,
         distanceToNext: move.distanceToNext,
         totalDistance: move.totalDistance,
@@ -614,7 +635,13 @@ ${schema}`;
         currentEvent: null
       };
 
-      // Build outcome message/details for the toast
+      // NEW: if we were stuck and the effect didn't explicitly add stuck days,
+      // serving the prompt reduces the remaining stuck time by one.
+      if (wasStuck && eff.stuckDays === 0) {
+        after.stuckDays = Math.max(0, after.stuckDays - 1);
+        if (after.stuckDays === 0) after.jailed = false;
+      }
+
       const details = buildOutcomeDetails(prev, after, eff, movedIndexDelta);
       const toast = {
         title: prev.currentEvent?.title || "Outcome",
@@ -623,7 +650,6 @@ ${schema}`;
         severe: eff.endGame === "lose" || eff.sendToJail || after.health <= 0
       };
 
-      // Cascading event (mini section) if conditions hit
       const cascade = maybeCascadingEvent(choice.text || "", after);
       if (cascade) {
         cascade.choices = cascade.choices.map(c => ({ ...c, effect: sanitizeEffect(c.effect) }));
@@ -640,7 +666,7 @@ ${schema}`;
     });
   }
 
-  // Auto-dismiss the outcome toast after a few seconds
+  // Auto-dismiss the outcome toast
   useEffect(() => {
     if (!g.lastOutcome) return;
     const t = setTimeout(() => {
@@ -671,20 +697,6 @@ ${schema}`;
   }
 
   function advanceDay() {
-    if (g.stuckDays > 0) {
-      setG(prev => ({
-        ...prev,
-        day: prev.day + 1,
-        stuckDays: prev.stuckDays - 1,
-        jailed: prev.stuckDays - 1 > 0 ? prev.jailed : false,
-        health: Math.max(0, prev.health - 2),
-        morale: Math.max(0, prev.morale - 3),
-        supplies: Math.max(0, prev.supplies - 4),
-        currentEvent: null
-      }));
-      return;
-    }
-
     const base = 15 + Math.floor(Math.random() * 10);
     const healthMod = Math.floor(g.health / 20);
     const suppliesMod = Math.floor(g.supplies / 25);
@@ -728,7 +740,19 @@ ${schema}`;
         if (!curr.currentEvent) generateEvent();
         return curr;
       });
-    }, 600);
+    }, 500);
+  }
+
+  // Single CTA: Continue
+  function onContinue() {
+    if (g.currentEvent) return;
+    if (g.stuckDays > 0) {
+      // While stuck, you can’t travel: only create an event prompt to work through it
+      generateEvent();
+    } else {
+      // Not stuck: advance the day (travel) and then event triggers automatically
+      advanceDay();
+    }
   }
 
   const upcoming = useMemo(
@@ -742,51 +766,64 @@ ${schema}`;
     return lastTen.reverse();
   }, [g.gameLog]);
 
+  const gradientBg = "linear-gradient(135deg,#0f172a 0%, #1e293b 30%, #7c3aed 60%, #f43f5e 100%)";
+
   return (
-    <div style={{ minHeight: "100vh", background: "linear-gradient(to bottom,#7f1d1d,#111827)", color: "#fff" }}>
+    <div style={{ minHeight: "100vh", background: gradientBg, backgroundAttachment: "fixed", color: "#fff" }}>
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: 16 }}>
         {/* Header */}
-        <div style={{ textAlign: "center", marginBottom: 16 }}>
-          <h1 style={{ margin: 0, fontSize: 32, color: "#f87171" }}>The Modern American Trail</h1>
-          <div style={{ color: "#cbd5e1" }}>Escape the Dystopia • Survive the Journey • Find Freedom</div>
-          <div style={{ marginTop: 6, fontSize: 14, color: "#a3aab8" }}>
-            Day {g.day} • {g.health > 70 ? "☀️ Fair Weather" : g.health > 40 ? "⛅ Overcast" : "🌧️ Stormy"}
-          </div>
-          <div style={{ marginTop: 8, fontSize: 12, display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
-            <span style={{ padding: "4px 8px", background: g.apiStats.connected ? "#064e3b" : "#7f1d1d", borderRadius: 6 }}>
+        <div style={{ textAlign: "center", marginBottom: 18 }}>
+          <h1 style={{ margin: 0, fontSize: 34, color: "#fff", textShadow: "0 4px 18px rgba(0,0,0,0.45)" }}>
+            The Modern American Trail
+          </h1>
+          <div style={{ color: "rgba(255,255,255,0.85)" }}>Escape the Dystopia • Survive the Journey • Find Freedom</div>
+          <div style={{ marginTop: 8, display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+            <span style={{ ...chip(g.apiStats.connected ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)"), borderColor: g.apiStats.connected ? "rgba(34,197,94,0.35)" : "rgba(239,68,68,0.35)" }}>
               {g.apiStats.connected ? "🟢 AI Connected" : "🔴 Fallback/Local Logic"}
             </span>
-            <span style={{ padding: "4px 8px", background: "#1f2937", borderRadius: 6 }}>
-              Model: {g.selectedModel}
-            </span>
+            <span style={chip("rgba(59,130,246,0.15)")}>Model: {g.selectedModel}</span>
+            <span style={chip("rgba(250,204,21,0.15)")}>Day {g.day}</span>
             {g.stuckDays > 0 && (
-              <span style={{ padding: "4px 8px", background: "#7c2d12", borderRadius: 6 }}>
+              <span style={chip("rgba(124,45,18,0.25)")}>
                 ⛔ Stuck {g.jailed ? "(Jailed) " : ""}{g.stuckDays} day{g.stuckDays === 1 ? "" : "s"} remaining
               </span>
             )}
           </div>
         </div>
 
-        {/* Actions */}
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginBottom: 12 }}>
-          <button title="Map" style={btn()} onClick={() => setG(p => ({ ...p, showMap: true }))}><MapIcon size={18} /></button>
-          <button title="Black Market" style={btn("#16a34a")} onClick={() => setG(p => ({ ...p, showShop: true }))}><ShoppingCart size={18} /></button>
-          <button title="Settings" style={btn("#3b82f6")} onClick={() => setG(p => ({ ...p, showSettings: true }))}><Settings size={18} /></button>
-          <button title="New Game" style={btn("#ea580c")} onClick={() => setG(newGameState(models.find(m => m.healthy)?.id || models[0]?.id))}><Upload size={18} /></button>
-          <button
-            title="Export Save"
-            style={btn("#8b5cf6")}
-            onClick={() => {
-              const blob = new Blob([JSON.stringify(g, null, 2)], { type: "application/json" });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url;
-              a.download = `modern_trail_${isWin ? "victory" : "run"}_${g.day}days.json`;
-              a.click();
-            }}
-          >
-            <Save size={18} />
-          </button>
+        {/* Top actions */}
+        <div style={{ display: "flex", gap: 8, justifyContent: "space-between", marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button title="Map" style={btn()} onClick={() => setG(p => ({ ...p, showMap: true }))}><MapIcon size={18} /></button>
+            <button title="Black Market" style={btn("#1d3b2d")} onClick={() => setG(p => ({ ...p, showShop: true }))}><ShoppingCart size={18} /></button>
+            <button title="Settings" style={btn("#1c2d4a")} onClick={() => setG(p => ({ ...p, showSettings: true }))}><Settings size={18} /></button>
+            <button title="New Game" style={btn("#3b1d0c")} onClick={() => setG(newGameState(models.find(m => m.healthy)?.id || models[0]?.id))}><Upload size={18} /></button>
+            <button
+              title="Export Save"
+              style={btn("#2a1f4a")}
+              onClick={() => {
+                const blob = new Blob([JSON.stringify(g, null, 2)], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `modern_trail_${isWin ? "victory" : "run"}_${g.day}days.json`;
+                a.click();
+              }}
+            >
+              <Save size={18} />
+            </button>
+          </div>
+
+          {/* Single CTA */}
+          {!g.currentEvent && !isGameOver && (
+            <button
+              style={primaryBtn()}
+              onClick={onContinue}
+              disabled={g.isLoading}
+            >
+              {g.stuckDays > 0 ? "Continue (Handle Situation)" : "Continue"}
+            </button>
+          )}
         </div>
 
         {/* Stats */}
@@ -794,16 +831,16 @@ ${schema}`;
           <Stat label="Health" value={g.health} icon={Heart} color="#ef4444" />
           <Stat label="Morale" value={g.morale} icon={Battery} color="#3b82f6" />
           <Stat label="Supplies" value={g.supplies} icon={AlertCircle} color="#f59e0b" />
-          <Stat label="Money" value={g.money} max={1000} icon={DollarSign} color="#10b981" />
+          <Stat label="Money" value={g.money} max={1000} icon={DollarSign} color="#22c55e" />
         </div>
 
         {/* Location & Progress */}
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", marginBottom: 16 }}>
           <div style={card()}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <MapPin size={18} color="#f87171" />
-              <div style={{ fontWeight: 700, color: "#fde68a" }}>{currentLocation}</div>
-              <div style={{ marginLeft: "auto", background: "#1f2937", borderRadius: 6, padding: "2px 8px" }}>Day {g.day}</div>
+              <MapPin size={18} color="#fca5a5" />
+              <div style={{ fontWeight: 800, color: "#fde68a" }}>{currentLocation}</div>
+              <div style={{ marginLeft: "auto", ...chip("rgba(31,41,55,0.6)") }}>Day {g.day}</div>
             </div>
             <div style={{ fontSize: 14, color: "#aeb6c7", display: "grid", gap: 6 }}>
               <Row label="Distance to next" value={<span style={{ color: "#60a5fa", fontFamily: "ui-monospace,monospace" }}>{g.distanceToNext} miles</span>} />
@@ -813,19 +850,19 @@ ${schema}`;
           </div>
           <div style={card()}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-              <MapIcon size={18} color="#60a5fa" /><div style={{ fontWeight: 600 }}>Journey Progress</div>
+              <MapIcon size={18} color="#93c5fd" /><div style={{ fontWeight: 700 }}>Journey Progress</div>
             </div>
-            <div style={{ height: 12, background: "#374151", borderRadius: 999, overflow: "hidden", marginBottom: 6 }}>
-              <div style={{ width: `${Math.max(6, progressPct)}%`, background: "linear-gradient(90deg,#ef4444,#f59e0b,#10b981)", height: "100%" }} />
+            <div style={{ height: 14, background: "rgba(255,255,255,0.06)", borderRadius: 999, overflow: "hidden", marginBottom: 6 }}>
+              <div style={{ width: `${Math.max(6, progressPct)}%`, background: "linear-gradient(90deg,#ef4444,#f59e0b,#22c55e)", height: "100%", transition: "width .35s ease" }} />
             </div>
-            <div style={{ fontSize: 12, color: "#94a3b8", textAlign: "center" }}>{progressPct}% Complete</div>
+            <div style={{ fontSize: 12, color: "#e5e7eb", textAlign: "center" }}>{progressPct}% Complete</div>
           </div>
         </div>
 
         {/* Main area */}
         {isGameOver ? (
           <div style={{ ...card(), textAlign: "center", padding: 24 }}>
-            <div style={{ fontSize: 48, marginBottom: 12 }}>{isWin ? "🏆" : "💀"}</div>
+            <div style={{ fontSize: 52, marginBottom: 12 }}>{isWin ? "🏆" : "💀"}</div>
             <h2 style={{ marginTop: 0 }}>{isWin ? "Victory!" : "Game Over"}</h2>
             <p style={{ color: "#cbd5e1" }}>
               {isWin
@@ -833,22 +870,22 @@ ${schema}`;
                 : "The dystopian regime has claimed another victim. Your journey ends in the wasteland."}
             </p>
             <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", marginTop: 12 }}>
-              <button style={btn("#ef4444")} onClick={() => setG(newGameState(models.find(m => m.healthy)?.id || models[0]?.id))}>New Journey</button>
-              <button style={btn("#3b82f6")} onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>Back to Top</button>
+              <button style={btn("#4a1d1d")} onClick={() => setG(newGameState(models.find(m => m.healthy)?.id || models[0]?.id))}>New Journey</button>
+              <button style={btn("#1c2d4a")} onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>Back to Top</button>
             </div>
           </div>
         ) : g.currentEvent ? (
-          <div style={card()}>
+          <div style={{ ...card(), border: "1px solid rgba(252,165,165,0.35)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
               <AlertCircle size={20} color="#f87171" />
               <h3 style={{ margin: 0, color: "#fca5a5" }}>{g.currentEvent.title}</h3>
             </div>
-            <div style={{ ...card(), borderColor: "#7f1d1d" }}>
+            <div style={{ ...card(), border: "1px dashed rgba(248,113,113,0.35)", background: "rgba(127,29,29,0.15)" }}>
               <p style={{ margin: 0, color: "#e5e7eb" }}>{g.currentEvent.description}</p>
             </div>
             <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
               {g.currentEvent.choices.map((c, idx) => (
-                <button key={idx} style={btn()} onClick={() => handleChoice(c)}>
+                <button key={idx} style={btn("rgba(24,32,48,0.9)")} onClick={() => handleChoice(c)}>
                   <strong style={{ marginRight: 8 }}>{["🅰️","🅱️","🅲️","🅳️"][idx] || "➕"}</strong>{c.text}
                 </button>
               ))}
@@ -858,22 +895,19 @@ ${schema}`;
           <div style={{ ...card(), textAlign: "center" }}>
             {g.isLoading ? (
               <div>
-                <div style={{ fontSize: 24, marginBottom: 12 }}>🔄</div>
+                <div style={{ fontSize: 28, marginBottom: 12, filter: "drop-shadow(0 8px 18px rgba(0,0,0,0.45))" }}>🔮</div>
                 <div style={{ fontSize: 14, color: "#fde68a" }}>Consulting the resistance network...</div>
               </div>
             ) : (
               <>
                 <div style={{ fontSize: 28, marginBottom: 10 }}>🌅</div>
-                <p style={{ color: "#cbd5e1" }}>
+                <p style={{ color: "#cbd5e1", marginBottom: 12 }}>
                   Another day dawns in this authoritarian wasteland. What challenges await at{" "}
                   <span style={{ color: "#fde68a", fontWeight: 700 }}>{currentLocation}</span>?
                 </p>
-                <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
-                  <button style={btn("#ef4444")} onClick={generateEvent}>Face the Day</button>
-                  <button style={btn("#3b82f6")} onClick={advanceDay} disabled={g.stuckDays > 0}>
-                    {g.stuckDays > 0 ? "Serve a Day" : "Travel Forward"}
-                  </button>
-                </div>
+                <button style={primaryBtn()} onClick={onContinue}>
+                  {g.stuckDays > 0 ? "Continue (Handle Situation)" : "Continue"}
+                </button>
               </>
             )}
           </div>
@@ -882,7 +916,7 @@ ${schema}`;
         {/* Party */}
         <div style={{ ...card(), marginTop: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <Users size={18} color="#60a5fa" /><div style={{ fontWeight: 600, color: "#93c5fd" }}>Your Party</div>
+            <Users size={18} color="#93c5fd" /><div style={{ fontWeight: 700, color: "#bfdbfe" }}>Your Party</div>
           </div>
           <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))" }}>
             {g.party.map((m, i) => {
@@ -893,7 +927,7 @@ ${schema}`;
               return (
                 <div key={i} style={card()}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <div style={{ fontWeight: 700 }}>{icon} {m.name}</div>
+                    <div style={{ fontWeight: 800 }}>{icon} {m.name}</div>
                     <div>{m.health <= 0 ? "💀" : "💚"}</div>
                   </div>
                   <div style={{ color: "#cbd5e1", fontSize: 14, marginTop: 4 }}>{m.profession}</div>
@@ -915,8 +949,8 @@ ${schema}`;
         {/* Log (DESCENDING newest first) */}
         {g.gameLog.length > 0 && (
           <div style={{ ...card(), marginTop: 16 }}>
-            <div style={{ fontWeight: 600, marginBottom: 6 }}>Journey Log</div>
-            <div style={{ display: "grid", gap: 6, maxHeight: 180, overflowY: "auto" }}>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>Journey Log</div>
+            <div style={{ display: "grid", gap: 6, maxHeight: 200, overflowY: "auto" }}>
               {recentLog.map((line, i) => (
                 <div key={i} style={{ color: "#cbd5e1", fontSize: 14 }}>
                   <strong>Day {line.day}:</strong> {line.event} — {line.result}
@@ -927,9 +961,9 @@ ${schema}`;
         )}
 
         {/* Footer */}
-        <div style={{ textAlign: "center", marginTop: 18, color: "#8a93a6", fontSize: 12 }}>
+        <div style={{ textAlign: "center", marginTop: 18, color: "#e5e7eb", fontSize: 12 }}>
           Total locations: {g.locations.length} • Progress: {g.currentLocationIndex}/{g.locations.length - 1}
-          <div>A satirical Oregon Trail-style game • Events are fictional commentary</div>
+          <div style={{ opacity: 0.85 }}>A satirical Oregon Trail-style game • Events are fictional commentary</div>
         </div>
       </div>
 
@@ -939,14 +973,14 @@ ${schema}`;
           <div style={modal()}>
             <h3 style={{ marginTop: 0 }}>Settings</h3>
             <div style={{ ...card(), marginBottom: 12 }}>
-              <div style={{ fontWeight: 600, color: "#60a5fa", marginBottom: 6 }}>AI Connection</div>
+              <div style={{ fontWeight: 700, color: "#93c5fd", marginBottom: 6 }}>AI Connection</div>
               <div style={{ display: "grid", gap: 8 }}>
                 <label>
                   <div style={{ fontSize: 12, color: "#9aa3b2", marginBottom: 4 }}>Model (free only)</div>
                   <select
                     value={g.selectedModel}
                     onChange={e => setG(p => ({ ...p, selectedModel: e.target.value, apiStats: { ...p.apiStats, currentModel: e.target.value } }))}
-                    style={{ width: "100%", padding: 10, background: "#0f1320", color: "#e5e7eb", border: "1px solid #232a36", borderRadius: 8 }}
+                    style={{ width: "100%", padding: 12, background: "rgba(15,19,32,0.9)", color: "#e5e7eb", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12 }}
                     disabled={modelsLoading || models.length === 0}
                   >
                     {models.map(m => <option key={m.id} value={m.id}>{m.name}{m.healthy ? "" : " (iffy)"}</option>)}
@@ -959,8 +993,8 @@ ${schema}`;
                   )}
                 </label>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button style={btn("#3b82f6")} onClick={testAPIConnection}>Test Connection</button>
-                  <button style={btn("#6b7280")} onClick={() => setG(p => ({
+                  <button style={btn("#1c2d4a")} onClick={testAPIConnection}>Test Connection</button>
+                  <button style={btn("#3a3f52")} onClick={() => setG(p => ({
                     ...p, apiStats: { ...p.apiStats, totalCalls: 0, successfulCalls: 0, failedCalls: 0, totalTokensUsed: 0, lastError: null }
                   }))}>
                     Reset Stats
@@ -970,7 +1004,7 @@ ${schema}`;
                   Your API key is stored server-side in Cloudflare Pages and never exposed in the browser.
                 </div>
                 {g.apiStats.lastError && (
-                  <div style={{ ...card(), borderColor: "#7f1d1d" }}>
+                  <div style={{ ...card(), border: "1px solid rgba(127,29,29,0.45)" }}>
                     <strong>Last Error:</strong> {g.apiStats.lastError}
                   </div>
                 )}
@@ -1001,8 +1035,8 @@ ${schema}`;
                     </div>
                     <div style={{ fontSize: 14, color: "#cbd5e1", marginTop: 4 }}>{item.description}</div>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
-                      <div style={{ color: "#34d399", fontWeight: 700 }}>${price}</div>
-                      <button style={btn("#16a34a")} onClick={() => buyItem({ ...item, basePrice: price })} disabled={!afford}>
+                      <div style={{ color: "#34d399", fontWeight: 800 }}>${price}</div>
+                      <button style={btn("#16523a")} onClick={() => buyItem({ ...item, basePrice: price })} disabled={!afford}>
                         {afford ? "Buy" : "No Cash"}
                       </button>
                     </div>
@@ -1023,13 +1057,13 @@ ${schema}`;
         <div style={modalBackdrop()}>
           <div style={modal({ maxWidth: 720 })}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <h3 style={{ marginTop: 0, color: "#60a5fa" }}>Journey Map</h3>
+              <h3 style={{ marginTop: 0, color: "#93c5fd" }}>Journey Map</h3>
               <button style={btn()} onClick={() => setG(p => ({ ...p, showMap: false }))}>Close</button>
             </div>
             <div style={card()}>
-              <div style={{ fontWeight: 700, marginBottom: 8, color: "#60a5fa" }}>Journey Progress</div>
-              <div style={{ height: 12, background: "#374151", borderRadius: 999, overflow: "hidden", marginBottom: 8 }}>
-                <div style={{ width: `${progressPct}%`, background: "linear-gradient(90deg,#ef4444,#f59e0b,#10b981)", height: "100%" }} />
+              <div style={{ fontWeight: 800, marginBottom: 8, color: "#93c5fd" }}>Journey Progress</div>
+              <div style={{ height: 12, background: "rgba(255,255,255,0.06)", borderRadius: 999, overflow: "hidden", marginBottom: 8 }}>
+                <div style={{ width: `${progressPct}%`, background: "linear-gradient(90deg,#ef4444,#f59e0b,#22c55e)", height: "100%", transition: "width .35s ease" }} />
               </div>
               <div style={{ display: "grid", gap: 4, fontSize: 14, color: "#cbd5e1" }}>
                 <Row label="Current Location:" value={<span style={{ color: "#fde68a" }}>{currentLocation}</span>} />
@@ -1045,7 +1079,7 @@ ${schema}`;
       {/* Outcome Toast */}
       {g.lastOutcome && (
         <div style={{ position: "fixed", right: 16, bottom: 16, maxWidth: 460, zIndex: 60 }}>
-          <div style={{ ...card(), border: `1px solid ${g.lastOutcome.severe ? "#7f1d1d" : "#232a36"}`, boxShadow: "0 10px 20px rgba(0,0,0,0.35)" }}>
+          <div style={{ ...card(), border: `1px solid ${g.lastOutcome.severe ? "rgba(127,29,29,0.6)" : "rgba(255,255,255,0.12)"}`, boxShadow: "0 10px 20px rgba(0,0,0,0.35)" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
               <strong>Outcome: {g.lastOutcome.title}</strong>
               <button
