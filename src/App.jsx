@@ -4,7 +4,9 @@ import {
   ShoppingCart, Package, Zap, Save, Upload, Map as MapIcon
 } from "lucide-react";
 
-/* -------------------- Cloudflare Functions helpers -------------------- */
+/* ------------------------------------------------------------------ */
+/* Server helpers (Cloudflare Pages Functions)                        */
+/* ------------------------------------------------------------------ */
 async function chat({ model, messages, max_tokens = 700, temperature = 0.7 }) {
   const res = await fetch("/api/chat", {
     method: "POST",
@@ -29,23 +31,26 @@ function parseJSONFromText(text) {
     const first = t.indexOf("{");
     const last = t.lastIndexOf("}");
     if (first >= 0 && last > first) {
-      const slice = t.slice(first, last + 1);
-      try { return JSON.parse(slice); } catch {}
+      try { return JSON.parse(t.slice(first, last + 1)); } catch {}
     }
     throw new Error("Could not parse JSON from model response");
   }
 }
 
-/* -------------------- Fallback free models -------------------- */
+/* ------------------------------------------------------------------ */
+/* Free models (fallback if /api/models not configured)                */
+/* ------------------------------------------------------------------ */
 const FALLBACK_FREE_MODELS = [
-  { id: "mistralai/mistral-7b-instruct:free", name: "Mistral 7B (Free)" },
-  { id: "huggingfaceh4/zephyr-7b-beta:free", name: "Zephyr 7B (Free)" },
-  { id: "microsoft/phi-3-mini-128k-instruct:free", name: "Phi-3 Mini 128k (Free)" },
-  { id: "qwen/qwen-2-7b-instruct:free", name: "Qwen 2 7B (Free)" },
-  { id: "openchat/openchat-7b:free", name: "OpenChat 7B (Free)" }
+  { id: "mistralai/mistral-7b-instruct:free", name: "Mistral 7B (Free)", healthy: true },
+  { id: "huggingfaceh4/zephyr-7b-beta:free", name: "Zephyr 7B (Free)", healthy: true },
+  { id: "microsoft/phi-3-mini-128k-instruct:free", name: "Phi-3 Mini 128k (Free)", healthy: true },
+  { id: "qwen/qwen-2-7b-instruct:free", name: "Qwen 2 7B (Free)", healthy: true },
+  { id: "openchat/openchat-7b:free", name: "OpenChat 7B (Free)", healthy: true }
 ];
 
-/* -------------------- Game data & helpers -------------------- */
+/* ------------------------------------------------------------------ */
+/* Game setup                                                          */
+/* ------------------------------------------------------------------ */
 function generateLocations() {
   const baseLocations = [
     "Liberal Enclave of Portland",
@@ -65,28 +70,62 @@ function generateLocations() {
     "Safe Haven of Vermont"
   ];
 
-  const proceduralSuffixes = [
-    "Checkpoint Alpha", "Detention Center", "Propaganda Station", "Truth Verification Point",
-    "Loyalty Testing Facility", "Patriotism Academy", "Freedom™ Outpost", "Border Patrol Zone",
-    "Corporate Compound", "Indoctrination Hub", "Surveillance Nexus", "Control Point",
-    "Compliance Center", "Authority Station", "Regime Outpost", "Order Facility"
+  const suffixes = [
+    "Checkpoint Alpha","Detention Center","Propaganda Station","Truth Verification Point",
+    "Loyalty Testing Facility","Patriotism Academy","Freedom™ Outpost","Border Patrol Zone",
+    "Corporate Compound","Indoctrination Hub","Surveillance Nexus","Control Point",
+    "Compliance Center","Authority Station","Regime Outpost","Order Facility"
   ];
 
   const out = [];
   for (let i = 0; i < baseLocations.length - 1; i++) {
     out.push(baseLocations[i]);
-    const numProcedural = 2 + Math.floor(Math.random() * 3);
-    for (let j = 0; j < numProcedural; j++) {
-      const suffix = proceduralSuffixes[Math.floor(Math.random() * proceduralSuffixes.length)];
-      out.push(`${suffix} ${String.fromCharCode(65 + i)}-${j + 1}`);
+    const n = 2 + Math.floor(Math.random() * 3);
+    for (let j = 0; j < n; j++) {
+      const s = suffixes[Math.floor(Math.random() * suffixes.length)];
+      out.push(`${s} ${String.fromCharCode(65 + i)}-${j + 1}`);
     }
   }
   out.push(baseLocations[baseLocations.length - 1]);
   return out;
 }
 
-function newGameState() {
-  const defaultModel = FALLBACK_FREE_MODELS[0].id;
+const EFFECT_LIMITS = {
+  percent: { min: -100, max: 100 },
+  money: { min: -1000, max: 2000 },
+  milesForward: { min: 0, max: 150 },
+  milesBack: { min: 0, max: 150 },
+  stuckDays: { min: 0, max: 5 }
+};
+
+// sanitize & clamp effect payloads so wild outputs don't break the game
+function sanitizeEffect(raw = {}) {
+  const e = { ...raw };
+  const num = (v, d = 0) => (typeof v === "number" && isFinite(v) ? v : d);
+
+  const clamp = (v, { min, max }) => Math.max(min, Math.min(max, v));
+  const pct = (v) => clamp(num(v), EFFECT_LIMITS.percent);
+
+  const effect = {
+    health: pct(e.health || 0),
+    morale: pct(e.morale || 0),
+    supplies: pct(e.supplies || 0),
+    money: clamp(num(e.money || 0), EFFECT_LIMITS.money),
+    partyHealth: pct(e.partyHealth || 0),
+    partyMorale: pct(e.partyMorale || 0),
+    miles: clamp(num(e.miles || 0), EFFECT_LIMITS.milesForward),
+    milesBack: clamp(num(e.milesBack || 0), EFFECT_LIMITS.milesBack),
+    stuckDays: clamp(num(e.stuckDays || 0), EFFECT_LIMITS.stuckDays),
+    sendToJail: Boolean(e.sendToJail || false),
+    partyMemberLoss: Boolean(e.partyMemberLoss || false),
+    endGame: e.endGame === "win" || e.endGame === "lose" ? e.endGame : null,
+    message: typeof e.message === "string" ? e.message : ""
+  };
+  return effect;
+}
+
+function newGameState(defaultModelId) {
+  const defaultModel = defaultModelId || FALLBACK_FREE_MODELS[0].id;
   return {
     locations: generateLocations(),
     currentLocationIndex: 0,
@@ -114,6 +153,11 @@ function newGameState() {
     milesPerDay: 0,
     gameStartTime: Date.now(),
     difficulty: "normal",
+
+    // status effects
+    stuckDays: 0,
+    jailed: false,
+
     apiStats: {
       connected: false,
       totalCalls: 0,
@@ -127,9 +171,11 @@ function newGameState() {
   };
 }
 
-/* -------------------- UI helpers -------------------- */
+/* ------------------------------------------------------------------ */
+/* UI helpers                                                          */
+/* ------------------------------------------------------------------ */
 function Stat({ label, value, max = 100, icon: Icon, color = "#999" }) {
-  const pct = Math.min(100, Math.round((value / max) * 100));
+  const pct = Math.min(100, Math.max(0, Math.round((value / max) * 100)));
   return (
     <div style={card()}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
@@ -145,7 +191,6 @@ function Stat({ label, value, max = 100, icon: Icon, color = "#999" }) {
     </div>
   );
 }
-
 function Row({ label, value }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -154,51 +199,25 @@ function Row({ label, value }) {
     </div>
   );
 }
-
 function btn(bg = "#374151") {
   return {
-    background: bg,
-    border: "1px solid rgba(255,255,255,0.07)",
-    color: "#fff",
-    borderRadius: 8,
-    padding: "10px 14px",
-    cursor: "pointer"
+    background: bg, border: "1px solid rgba(255,255,255,0.07)", color: "#fff",
+    borderRadius: 8, padding: "10px 14px", cursor: "pointer"
   };
 }
-
 function card() {
-  return {
-    background: "linear-gradient(180deg,#141821,#10131a)",
-    border: "1px solid #232a36",
-    borderRadius: 12,
-    padding: 16
-  };
+  return { background: "linear-gradient(180deg,#141821,#10131a)", border: "1px solid #232a36", borderRadius: 12, padding: 16 };
 }
-
 function modalBackdrop() {
-  return {
-    position: "fixed",
-    inset: 0,
-    background: "rgba(0,0,0,0.75)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 16,
-    zIndex: 50
-  };
+  return { position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 50 };
 }
 function modal(opts = {}) {
-  return {
-    width: "100%",
-    maxWidth: opts.maxWidth || 720,
-    background: "#141821",
-    border: "1px solid #232a36",
-    borderRadius: 12,
-    padding: 16
-  };
+  return { width: "100%", maxWidth: opts.maxWidth || 720, background: "#141821", border: "1px solid #232a36", borderRadius: 12, padding: 16 };
 }
 
-/* -------------------- Shop items -------------------- */
+/* ------------------------------------------------------------------ */
+/* Shop                                                                */
+/* ------------------------------------------------------------------ */
 const shopItems = [
   { id: "supplies", name: "Underground Rations", description: "Black market food supplies to keep your party fed.", basePrice: 50, effect: { supplies: 30 }, icon: Package },
   { id: "medicine", name: "Bootleg Medicine", description: "Illegal healthcare supplies (banned by the regime).", basePrice: 80, effect: { health: 25, partyHealth: 15 }, icon: Heart },
@@ -207,60 +226,71 @@ const shopItems = [
   { id: "survival_kit", name: "Prepper's Survival Kit", description: "Everything you need to survive the wasteland.", basePrice: 150, effect: { supplies: 40, health: 15, partyHealth: 10 }, icon: AlertCircle }
 ];
 
-/* -------------------- App -------------------- */
+/* ------------------------------------------------------------------ */
+/* App                                                                 */
+/* ------------------------------------------------------------------ */
 export default function App() {
-  const [g, setG] = useState(newGameState());
   const [models, setModels] = useState(FALLBACK_FREE_MODELS);
   const [modelsLoading, setModelsLoading] = useState(true);
+
+  // pick first healthy model as initial
+  const initialModelId = useMemo(() => {
+    const healthy = models.find(m => m.healthy) || models[0];
+    return healthy?.id || FALLBACK_FREE_MODELS[0].id;
+  }, [models]);
+
+  const [g, setG] = useState(() => newGameState(initialModelId));
 
   const currentLocation = g.locations[g.currentLocationIndex];
   const progressPct = Math.round((g.currentLocationIndex / (g.locations.length - 1)) * 100);
   const isWin = currentLocation === "Safe Haven of Vermont" && g.health > 0;
   const isGameOver = g.health <= 0 || currentLocation === "Safe Haven of Vermont" || g.party.every(p => p.health <= 0);
 
-  // Helper: select a model and optionally test it right away
-  async function forceSelectAndTest(modelId) {
-    setG(prev => ({
-      ...prev,
-      selectedModel: modelId,
-      apiStats: { ...prev.apiStats, currentModel: modelId }
-    }));
-    await testAPIConnection(modelId);
-  }
-
-  // Load models from server and force choose a working one
   useEffect(() => {
     (async () => {
       try {
         setModelsLoading(true);
         const r = await fetch("/api/models");
-        const j = await r.json();
+        const j = await r.json().catch(() => ({}));
         const list = Array.isArray(j?.models) ? j.models : [];
-        const healthy = list.filter(m => m.healthy === true);
-        const roster = healthy.length ? healthy : list.length ? list : FALLBACK_FREE_MODELS;
+        if (list.length > 0) {
+          // only keep healthy or all if none healthy
+          const healthy = list.filter(m => m.healthy);
+          const next = healthy.length > 0 ? healthy : list;
+          setModels(next);
 
-        setModels(roster);
-
-        // Force-select the first option and immediately test it
-        const firstId = roster[0]?.id || FALLBACK_FREE_MODELS[0].id;
-        await forceSelectAndTest(firstId);
+          setG(prev => {
+            const has = next.some(m => m.id === prev.selectedModel);
+            const nextId = has ? prev.selectedModel : (next.find(m => m.healthy)?.id || next[0].id);
+            return { ...prev, selectedModel: nextId, apiStats: { ...prev.apiStats, currentModel: nextId } };
+          });
+        }
       } catch {
-        // Server failed — use fallback list and force-select first
-        setModels(FALLBACK_FREE_MODELS);
-        forceSelectAndTest(FALLBACK_FREE_MODELS[0].id);
+        // keep fallback
       } finally {
         setModelsLoading(false);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function testAPIConnection(modelOverride) {
-    const model = modelOverride || g.selectedModel;
+  // Always force a model at mount or when models change
+  useEffect(() => {
+    setG(prev => {
+      if (!prev.selectedModel) {
+        const healthy = models.find(m => m.healthy) || models[0];
+        const id = healthy?.id || FALLBACK_FREE_MODELS[0].id;
+        return { ...prev, selectedModel: id, apiStats: { ...prev.apiStats, currentModel: id } };
+      }
+      return prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [models]);
+
+  async function testAPIConnection() {
     setG(prev => ({ ...prev, apiStats: { ...prev.apiStats, lastError: "Testing connection..." } }));
     try {
       const data = await chat({
-        model,
+        model: g.selectedModel,
         messages: [{ role: "user", content: "Respond with only: OK" }],
         max_tokens: 5,
         temperature: 0
@@ -269,7 +299,6 @@ export default function App() {
       const ok = /^OK$/i.test(text);
       setG(prev => ({
         ...prev,
-        selectedModel: model,
         apiStats: {
           ...prev.apiStats,
           connected: ok,
@@ -278,25 +307,32 @@ export default function App() {
           successfulCalls: prev.apiStats.successfulCalls + (ok ? 1 : 0),
           failedCalls: prev.apiStats.failedCalls + (ok ? 0 : 1),
           lastCallTime: new Date().toLocaleTimeString(),
-          currentModel: model,
+          currentModel: g.selectedModel,
           totalTokensUsed: prev.apiStats.totalTokensUsed + (data?.usage?.total_tokens || 5)
         }
       }));
     } catch (e) {
       const msg = e?.message || "Connection failed";
-      setG(prev => ({
-        ...prev,
-        selectedModel: model,
-        apiStats: {
-          ...prev.apiStats,
-          connected: false,
-          lastError: msg + (/\bno endpoints found\b/i.test(msg) ? " (try another free model from the list)" : ""),
-          totalCalls: prev.apiStats.totalCalls + 1,
-          failedCalls: prev.apiStats.failedCalls + 1,
-          lastCallTime: new Date().toLocaleTimeString(),
-          currentModel: model
+      const noEndpoints = /no endpoints found|no endpoint/i.test(msg);
+      setG(prev => {
+        let nextModel = prev.selectedModel;
+        const idx = models.findIndex(m => m.id === prev.selectedModel);
+        if (noEndpoints && models.length > 1) {
+          nextModel = models[(idx + 1) % models.length].id;
         }
-      }));
+        return {
+          ...prev,
+          selectedModel: nextModel,
+          apiStats: {
+            ...prev.apiStats,
+            connected: false,
+            lastError: msg + (noEndpoints ? " (switched/try another free model)" : ""),
+            totalCalls: prev.apiStats.totalCalls + 1,
+            failedCalls: prev.apiStats.failedCalls + 1,
+            lastCallTime: new Date().toLocaleTimeString()
+          }
+        };
+      });
     }
   }
 
@@ -308,8 +344,98 @@ export default function App() {
     if (effect.money) parts.push(`Money ${effect.money > 0 ? "+" : ""}$${Math.abs(effect.money)}`);
     if (effect.partyHealth) parts.push(`Party health ${effect.partyHealth > 0 ? "+" : ""}${effect.partyHealth}%`);
     if (effect.partyMorale) parts.push(`Party morale ${effect.partyMorale > 0 ? "+" : ""}${effect.partyMorale}%`);
-    if (effect.miles) parts.push(`Miles +${effect.miles}`);
+    if (effect.miles) parts.push(`Forward +${effect.miles} miles`);
+    if (effect.milesBack) parts.push(`Backtrack +${effect.milesBack} miles`);
+    if (effect.stuckDays) parts.push(`Stuck ${effect.stuckDays} day(s)`);
+    if (effect.sendToJail) parts.push(`Jailed`);
+    if (effect.partyMemberLoss) parts.push(`A party member leaves`);
+    if (effect.endGame) parts.push(`End: ${effect.endGame}`);
     return parts.join(" • ");
+  }
+
+  // Move/Status application extracted for clarity
+  function applyMovementAndStatus(prev, effect) {
+    let { currentLocationIndex, distanceToNext, totalDistance, stuckDays, jailed } = prev;
+
+    // backtracking first
+    if (effect.milesBack > 0) {
+      distanceToNext += effect.milesBack;
+      totalDistance = Math.max(0, totalDistance - effect.milesBack);
+      // If we exceed a threshold, move to previous location(s)
+      const avgLeg = 80;
+      while (distanceToNext > avgLeg && currentLocationIndex > 0) {
+        currentLocationIndex -= 1;
+        distanceToNext -= avgLeg;
+      }
+    }
+
+    // forward movement
+    if (effect.miles > 0) {
+      distanceToNext = Math.max(0, distanceToNext - effect.miles);
+      totalDistance += effect.miles;
+      if (distanceToNext === 0 && currentLocationIndex < prev.locations.length - 1) {
+        currentLocationIndex += 1;
+        distanceToNext = Math.floor(Math.random() * 60) + 40;
+      }
+    }
+
+    // stuck/jail
+    if (effect.stuckDays > 0) stuckDays += effect.stuckDays;
+    if (effect.sendToJail) { jailed = true; stuckDays = Math.max(stuckDays, 2); }
+
+    // endgame shortcuts if requested by AI
+    if (effect.endGame === "win") {
+      currentLocationIndex = prev.locations.length - 1;
+      distanceToNext = 0;
+    }
+    if (effect.endGame === "lose") {
+      // health will be set to 0 by caller via effect clamp if desired; we ensure lose by returning a flag
+    }
+
+    return { currentLocationIndex, distanceToNext, totalDistance, stuckDays, jailed };
+  }
+
+  // Optional cascading event to ensure drama even if AI is tame
+  function maybeCascadingEvent(choiceText, stateAfterChoice) {
+    const r = Math.random();
+
+    // high risk: low health
+    if (stateAfterChoice.health < 30 && r < 0.35) {
+      return {
+        title: "Medical Emergency",
+        description: "A party member collapses. The regime's healthcare restrictions make help risky.",
+        choices: [
+          { text: "Visit underground clinic", effect: { health: 20, money: -150, supplies: -10, message: "The black market doctor helps, at a cost." } },
+          { text: "Patch them up yourself", effect: { health: -10, supplies: -15, partyHealth: -10, message: "You do what you can. It's not enough." } }
+        ]
+      };
+    }
+
+    // low supplies
+    if (stateAfterChoice.supplies < 20 && r < 0.45) {
+      return {
+        title: "Starvation Crisis",
+        description: "Hunger clouds judgement. You need food fast.",
+        choices: [
+          { text: "Raid an abandoned store", effect: { supplies: 30, health: -5, milesBack: 10, message: "You find some expired food, and draw attention." } },
+          { text: "Beg other travelers", effect: { supplies: 15, morale: -15, partyMorale: -10, message: "Pride suffers, stomachs don’t." } }
+        ]
+      };
+    }
+
+    // if choice sounded shady, maybe get pursued
+    if (/(bribe|hack|steal|sabotage|resist|fight)/i.test(choiceText) && r < 0.35) {
+      return {
+        title: "Authorities On Your Tail",
+        description: "Your actions were reported. Enforcers are closing in.",
+        choices: [
+          { text: "Lay low and change routes", effect: { milesBack: 30, supplies: -10, morale: -5, message: "You buy time, but lose ground." } },
+          { text: "Floor it", effect: { health: -10, supplies: -10, miles: 20, message: "The chase is brutal, but you gain distance." } }
+        ]
+      };
+    }
+
+    return null;
   }
 
   async function generateEvent() {
@@ -325,24 +451,46 @@ export default function App() {
         partyMembers: g.party.map(p => `${p.name} (${p.profession}, Health: ${p.health}%, Morale: ${p.morale}%)`).join(", "),
         distanceToNext: g.distanceToNext,
         totalDistance: g.totalDistance,
-        difficulty: g.difficulty
+        difficulty: g.difficulty,
+        // hints for the model
+        stuckDays: g.stuckDays,
+        jailed: g.jailed
       };
 
-      const prompt =
-        `You are generating a satirical event for a dystopian Oregon Trail-style game called "The Modern American Trail" set in a conservative-controlled America in ${new Date().getFullYear() + 1}.
-Current game state: ${JSON.stringify(stateForPrompt)}
-Generate a sarcastic, darkly humorous event that mocks conservative extremism and authoritarianism. The event should be relevant to the current location "${currentLocation}".
-Consider the party's health/morale. Include 2-3 meaningful choices that affect game stats realistically.
-Make effects proportional to the current state—if health/morale is low, avoid overly harsh penalties. If supplies are critical, offer a way to find some.
-Respond with ONLY valid JSON in this exact format:
+      const schema = `Use ONLY this JSON shape:
 {
-  "title": "Event Title",
-  "description": "2-3 sentences",
+  "title": "string",
+  "description": "2-3 sentences of satirical narrative",
   "choices": [
-    { "text": "Choice 1", "effect": { "health": -5, "morale": 5, "supplies": 0, "money": -25, "partyHealth": -3, "partyMorale": 2, "miles": 0, "message": "Result" } },
-    { "text": "Choice 2", "effect": { "health": 0, "morale": -10, "supplies": 5, "money": 0, "partyHealth": 0, "partyMorale": -5, "miles": 0, "message": "Result" } }
+    {
+      "text": "string",
+      "effect": {
+        "health": -20..20,               // group health %
+        "morale": -25..25,               // group morale %
+        "supplies": -50..50,             // supplies %
+        "money": -500..500,              // dollars
+        "partyHealth": -20..20,          // each member health %
+        "partyMorale": -20..20,          // each member morale %
+        "miles": 0..100,                 // move forward this many miles
+        "milesBack": 0..100,             // backtrack this many miles
+        "stuckDays": 0..3,               // days unable to travel
+        "sendToJail": true|false,        // sets stuck/jail state
+        "partyMemberLoss": true|false,   // one member leaves
+        "endGame": "win"|"lose"|null,    // optional immediate ending
+        "message": "short outcome line"
+      }
+    }
   ]
-}`;
+}
+Rules:
+- At least ONE of: miles, milesBack, stuckDays, sendToJail, partyHealth/partyMorale, or endGame MUST be impactful (>0 or true).
+- Keep numbers proportional to the current state (avoid lethal spikes if health/morale already low).
+- Tailor to location "${currentLocation}" and tone: darkly humorous satire of authoritarian conservatism.
+- OUTPUT ONLY JSON. No markdown.`;
+
+      const prompt = `You are generating an impactful event for a dystopian Oregon Trail-style satire game, "The Modern American Trail" in ${new Date().getFullYear() + 1}.
+Current game state: ${JSON.stringify(stateForPrompt)}
+${schema}`;
 
       const data = await chat({
         model: g.selectedModel,
@@ -353,10 +501,15 @@ Respond with ONLY valid JSON in this exact format:
 
       const text = data?.choices?.[0]?.message?.content ?? "";
       const eventData = parseJSONFromText(text);
-
       if (!eventData?.title || !eventData?.description || !Array.isArray(eventData?.choices)) {
         throw new Error("Event missing required fields");
       }
+
+      // sanitize all effects
+      eventData.choices = eventData.choices.map(c => ({
+        text: String(c?.text || "Choose"),
+        effect: sanitizeEffect(c?.effect || {})
+      }));
 
       setG(prev => ({
         ...prev,
@@ -375,23 +528,24 @@ Respond with ONLY valid JSON in this exact format:
       const fallbackEvents = [
         {
           title: "Mandatory Patriotism Test",
-          description: `At ${currentLocation}, officials demand you prove your loyalty by reciting the pledge to a flag made entirely of corporate logos. Your party exchanges nervous glances.`,
+          description: `At ${currentLocation}, officials demand you prove your loyalty by reciting the pledge to a flag made entirely of corporate logos.`,
           choices: [
-            { text: "Recite it with exaggerated enthusiasm", effect: { health: 0, morale: -10, supplies: 0, money: 0, partyHealth: 0, partyMorale: -5, miles: 0, message: "You pass the test but feel your soul shrinking." } },
-            { text: "Try to slip them a bribe", effect: { health: -5, morale: 5, supplies: 0, money: -50, partyHealth: 0, partyMorale: 3, miles: 0, message: "Money talks, even in a dystopia." } },
-            { text: "Refuse and argue about constitutional rights", effect: { health: -15, morale: 10, supplies: 0, money: -25, partyHealth: 0, partyMorale: 5, miles: 0, message: "Your principles cost you time and a fine." } }
+            { text: "Recite with exaggerated enthusiasm", effect: { health: 0, morale: -10, partyMorale: -5, miles: 5, message: "You pass the test but feel your soul shrinking." } },
+            { text: "Slip them a bribe", effect: { health: -2, morale: 5, money: -80, miles: 10, message: "Money talks, even in a dystopia." } },
+            { text: "Refuse and cite rights", effect: { health: -10, morale: 10, money: -50, milesBack: 20, message: "Principles are expensive." } }
           ]
         },
         {
           title: "Corporate Checkpoint Inspection",
-          description: "Amazon-Walmart Security Forces demand to search your vehicle for 'unauthorized merchandise' and 'anti-corporate sentiment materials.' They look very serious about their corporate loyalty.",
+          description: "Amazon-Walmart Security Forces search for 'anti-corporate sentiment materials.'",
           choices: [
-            { text: "Submit to full search and praise the corporations", effect: { health: 0, morale: -15, supplies: -20, money: 0, partyHealth: 0, partyMorale: -10, miles: 0, message: "They confiscate 'suspicious' items but let you pass." } },
-            { text: "Offer to buy overpriced corporate merchandise", effect: { health: 0, morale: -5, supplies: 0, money: -150, partyHealth: 0, partyMorale: 0, miles: 0, message: "Capitalism solves another problem through commerce." } },
-            { text: "Challenge their authority", effect: { health: -25, morale: 0, supplies: 0, money: -200, partyHealth: -15, partyMorale: 0, miles: 0, message: "Corporate justice is swift and expensive." } }
+            { text: "Submit and praise the megacorps", effect: { supplies: -15, morale: -10, partyMorale: -8, miles: 0, message: "They confiscate 'suspicious' items but let you pass." } },
+            { text: "Buy overpriced merch to appease", effect: { money: -150, morale: -3, miles: 10, message: "Capitalism miraculously fixes the problem." } },
+            { text: "Challenge their authority", effect: { health: -20, money: -200, milesBack: 35, partyHealth: -10, message: "Corporate justice is swift and expensive." } }
           ]
         }
-      ];
+      ].map(evt => ({ ...evt, choices: evt.choices.map(c => ({ ...c, effect: sanitizeEffect(c.effect) })) }));
+
       setG(prev => ({
         ...prev,
         currentEvent: fallbackEvents[Math.floor(Math.random() * fallbackEvents.length)],
@@ -410,40 +564,53 @@ Respond with ONLY valid JSON in this exact format:
   }
 
   function handleChoice(choice) {
-    const e = choice.effect || {};
+    const eff = sanitizeEffect(choice.effect || {});
     setG(prev => {
-      const party = prev.party.map(m => ({
+      // party changes (health/morale)
+      let party = prev.party.map(m => ({
         ...m,
-        health: Math.max(0, Math.min(100, m.health + (e.partyHealth || 0))),
-        morale: Math.max(0, Math.min(100, m.morale + (e.partyMorale || 0)))
+        health: Math.max(0, Math.min(100, m.health + (eff.partyHealth || 0))),
+        morale: Math.max(0, Math.min(100, m.morale + (eff.partyMorale || 0)))
       }));
+      if (eff.partyMemberLoss && party.length > 0) party = party.slice(0, -1);
 
-      let { currentLocationIndex, distanceToNext, totalDistance } = prev;
-      const miles = e.miles || 0;
-      if (miles > 0) {
-        distanceToNext = Math.max(0, distanceToNext - miles);
-        totalDistance += miles;
-        if (distanceToNext === 0 && currentLocationIndex < prev.locations.length - 1) {
-          currentLocationIndex += 1;
-          distanceToNext = Math.floor(Math.random() * 60) + 40;
-        }
-      }
+      // endgame "lose" via health drop to zero if requested
+      let nextHealth = Math.max(0, Math.min(100, prev.health + (eff.health || 0)));
+      if (eff.endGame === "lose") nextHealth = 0;
+
+      // apply movement/status
+      const move = applyMovementAndStatus(prev, eff);
 
       const newState = {
         ...prev,
-        health: Math.max(0, Math.min(100, prev.health + (e.health || 0))),
-        morale: Math.max(0, Math.min(100, prev.morale + (e.morale || 0))),
-        supplies: Math.max(0, Math.min(100, prev.supplies + (e.supplies || 0))),
-        money: Math.max(0, prev.money + (e.money || 0)),
+        health: nextHealth,
+        morale: Math.max(0, Math.min(100, prev.morale + (eff.morale || 0))),
+        supplies: Math.max(0, Math.min(100, prev.supplies + (eff.supplies || 0))),
+        money: Math.max(0, prev.money + (eff.money || 0)),
         party,
-        totalDistance,
-        distanceToNext,
-        currentLocationIndex,
+        currentLocationIndex: move.currentLocationIndex,
+        distanceToNext: move.distanceToNext,
+        totalDistance: move.totalDistance,
+        stuckDays: move.stuckDays,
+        jailed: move.jailed,
         currentEvent: null
       };
 
-      const msg = `${e.message || "You made your choice."}${outcomeSummary(e) ? " — " + outcomeSummary(e) : ""}`;
-      return { ...newState, gameLog: [...prev.gameLog, { day: prev.day, event: prev.currentEvent.title, result: msg }] };
+      const msg = `${eff.message || "You made your choice."}${outcomeSummary(eff) ? " — " + outcomeSummary(eff) : ""}`;
+      const after = { ...newState };
+
+      // maybe spawn a cascading event to spice things up
+      const cascade = maybeCascadingEvent(choice.text || "", after);
+      if (cascade) {
+        // sanitize cascade effects too
+        cascade.choices = cascade.choices.map(c => ({ ...c, effect: sanitizeEffect(c.effect) }));
+      }
+
+      return {
+        ...after,
+        currentEvent: cascade || null,
+        gameLog: [...prev.gameLog, { day: prev.day, event: prev.currentEvent.title, result: msg }]
+      };
     });
   }
 
@@ -469,6 +636,22 @@ Respond with ONLY valid JSON in this exact format:
   }
 
   function advanceDay() {
+    // If stuck/jail, you can't move, just tick the penalty day down
+    if (g.stuckDays > 0) {
+      setG(prev => ({
+        ...prev,
+        day: prev.day + 1,
+        stuckDays: prev.stuckDays - 1,
+        jailed: prev.stuckDays - 1 > 0 ? prev.jailed : false, // free when done
+        // small attrition while stuck
+        health: Math.max(0, prev.health - 2),
+        morale: Math.max(0, prev.morale - 3),
+        supplies: Math.max(0, prev.supplies - 4),
+        currentEvent: null
+      }));
+      return;
+    }
+
     const base = 15 + Math.floor(Math.random() * 10);
     const healthMod = Math.floor(g.health / 20);
     const suppliesMod = Math.floor(g.supplies / 25);
@@ -524,27 +707,34 @@ Respond with ONLY valid JSON in this exact format:
   return (
     <div style={{ minHeight: "100vh", background: "linear-gradient(to bottom,#7f1d1d,#111827)", color: "#fff" }}>
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: 16 }}>
+        {/* Header */}
         <div style={{ textAlign: "center", marginBottom: 16 }}>
           <h1 style={{ margin: 0, fontSize: 32, color: "#f87171" }}>The Modern American Trail</h1>
           <div style={{ color: "#cbd5e1" }}>Escape the Dystopia • Survive the Journey • Find Freedom</div>
           <div style={{ marginTop: 6, fontSize: 14, color: "#a3aab8" }}>
             Day {g.day} • {g.health > 70 ? "☀️ Fair Weather" : g.health > 40 ? "⛅ Overcast" : "🌧️ Stormy"}
           </div>
-          <div style={{ marginTop: 8, fontSize: 12, display: "flex", gap: 8, justifyContent: "center" }}>
+          <div style={{ marginTop: 8, fontSize: 12, display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
             <span style={{ padding: "4px 8px", background: g.apiStats.connected ? "#064e3b" : "#7f1d1d", borderRadius: 6 }}>
-              {g.apiStats.connected ? "🟢 AI Connected" : "🔴 Fallback Events"}
+              {g.apiStats.connected ? "🟢 AI Connected" : "🔴 Fallback/Local Logic"}
             </span>
             <span style={{ padding: "4px 8px", background: "#1f2937", borderRadius: 6 }}>
               Model: {g.selectedModel}
             </span>
+            {g.stuckDays > 0 && (
+              <span style={{ padding: "4px 8px", background: "#7c2d12", borderRadius: 6 }}>
+                ⛔ Stuck {g.jailed ? "(Jailed) " : ""}{g.stuckDays} day{g.stuckDays === 1 ? "" : "s"} remaining
+              </span>
+            )}
           </div>
         </div>
 
+        {/* Actions */}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginBottom: 12 }}>
           <button title="Map" style={btn()} onClick={() => setG(p => ({ ...p, showMap: true }))}><MapIcon size={18} /></button>
           <button title="Black Market" style={btn("#16a34a")} onClick={() => setG(p => ({ ...p, showShop: true }))}><ShoppingCart size={18} /></button>
           <button title="Settings" style={btn("#3b82f6")} onClick={() => setG(p => ({ ...p, showSettings: true }))}><Settings size={18} /></button>
-          <button title="New Game" style={btn("#ea580c")} onClick={() => setG(newGameState())}><Upload size={18} /></button>
+          <button title="New Game" style={btn("#ea580c")} onClick={() => setG(newGameState(models.find(m => m.healthy)?.id || models[0]?.id))}><Upload size={18} /></button>
           <button
             title="Export Save"
             style={btn("#8b5cf6")}
@@ -561,6 +751,7 @@ Respond with ONLY valid JSON in this exact format:
           </button>
         </div>
 
+        {/* Stats */}
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", marginBottom: 16 }}>
           <Stat label="Health" value={g.health} icon={Heart} color="#ef4444" />
           <Stat label="Morale" value={g.morale} icon={Battery} color="#3b82f6" />
@@ -568,6 +759,7 @@ Respond with ONLY valid JSON in this exact format:
           <Stat label="Money" value={g.money} max={1000} icon={DollarSign} color="#10b981" />
         </div>
 
+        {/* Location & Progress */}
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", marginBottom: 16 }}>
           <div style={card()}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -575,7 +767,7 @@ Respond with ONLY valid JSON in this exact format:
               <div style={{ fontWeight: 700, color: "#fde68a" }}>{currentLocation}</div>
               <div style={{ marginLeft: "auto", background: "#1f2937", borderRadius: 6, padding: "2px 8px" }}>Day {g.day}</div>
             </div>
-            <div style={{ fontSize: 14, color: "#aeb6c7", display: "grid", gap: 6 }}>
+            <div style={{ fontSize: 14, color: "#aeb6c7", display: "grid", gap: 6" }}>
               <Row label="Distance to next" value={<span style={{ color: "#60a5fa", fontFamily: "ui-monospace,monospace" }}>{g.distanceToNext} miles</span>} />
               <Row label="Total traveled" value={<span style={{ color: "#34d399", fontFamily: "ui-monospace,monospace" }}>{g.totalDistance} miles</span>} />
               <Row label="Progress" value={<span style={{ color: "#c084fc" }}>{g.currentLocationIndex}/{g.locations.length - 1}</span>} />
@@ -592,6 +784,7 @@ Respond with ONLY valid JSON in this exact format:
           </div>
         </div>
 
+        {/* Main area */}
         {isGameOver ? (
           <div style={{ ...card(), textAlign: "center", padding: 24 }}>
             <div style={{ fontSize: 48, marginBottom: 12 }}>{isWin ? "🏆" : "💀"}</div>
@@ -602,7 +795,7 @@ Respond with ONLY valid JSON in this exact format:
                 : "The dystopian regime has claimed another victim. Your journey ends in the wasteland."}
             </p>
             <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", marginTop: 12 }}>
-              <button style={btn("#ef4444")} onClick={() => setG(newGameState())}>New Journey</button>
+              <button style={btn("#ef4444")} onClick={() => setG(newGameState(models.find(m => m.healthy)?.id || models[0]?.id))}>New Journey</button>
               <button style={btn("#3b82f6")} onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>Back to Top</button>
             </div>
           </div>
@@ -639,13 +832,16 @@ Respond with ONLY valid JSON in this exact format:
                 </p>
                 <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
                   <button style={btn("#ef4444")} onClick={generateEvent}>Face the Day</button>
-                  <button style={btn("#3b82f6")} onClick={advanceDay}>Travel Forward</button>
+                  <button style={btn("#3b82f6")} onClick={advanceDay} disabled={g.stuckDays > 0}>
+                    {g.stuckDays > 0 ? "Serve a Day" : "Travel Forward"}
+                  </button>
                 </div>
               </>
             )}
           </div>
         )}
 
+        {/* Party */}
         <div style={{ ...card(), marginTop: 16 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
             <Users size={18} color="#60a5fa" /><div style={{ fontWeight: 600, color: "#93c5fd" }}>Your Party</div>
@@ -678,6 +874,7 @@ Respond with ONLY valid JSON in this exact format:
           </div>
         </div>
 
+        {/* Log */}
         {g.gameLog.length > 0 && (
           <div style={{ ...card(), marginTop: 16 }}>
             <div style={{ fontWeight: 600, marginBottom: 6 }}>Journey Log</div>
@@ -691,12 +888,14 @@ Respond with ONLY valid JSON in this exact format:
           </div>
         )}
 
+        {/* Footer */}
         <div style={{ textAlign: "center", marginTop: 18, color: "#8a93a6", fontSize: 12 }}>
           Total locations: {g.locations.length} • Progress: {g.currentLocationIndex}/{g.locations.length - 1}
           <div>A satirical Oregon Trail-style game • Events are fictional commentary</div>
         </div>
       </div>
 
+      {/* Settings */}
       {g.showSettings && (
         <div style={modalBackdrop()}>
           <div style={modal()}>
@@ -708,15 +907,11 @@ Respond with ONLY valid JSON in this exact format:
                   <div style={{ fontSize: 12, color: "#9aa3b2", marginBottom: 4 }}>Model (free only)</div>
                   <select
                     value={g.selectedModel}
-                    onChange={e => forceSelectAndTest(e.target.value)}
+                    onChange={e => setG(p => ({ ...p, selectedModel: e.target.value, apiStats: { ...p.apiStats, currentModel: e.target.value } }))}
                     style={{ width: "100%", padding: 10, background: "#0f1320", color: "#e5e7eb", border: "1px solid #232a36", borderRadius: 8 }}
                     disabled={modelsLoading || models.length === 0}
                   >
-                    {models.map(m => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}{m.healthy === false ? " (unverified)" : ""}
-                      </option>
-                    ))}
+                    {models.map(m => <option key={m.id} value={m.id}>{m.name}{m.healthy ? "" : " (iffy)"}</option>)}
                   </select>
                   {modelsLoading && <div style={{ fontSize: 12, color: "#9aa3b2", marginTop: 6 }}>Loading free models…</div>}
                   {!modelsLoading && models.length === 0 && (
@@ -726,34 +921,15 @@ Respond with ONLY valid JSON in this exact format:
                   )}
                 </label>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button style={btn("#3b82f6")} onClick={() => testAPIConnection()}>Test Connection</button>
-                  <button
-                    style={btn("#0ea5e9")}
-                    onClick={async () => {
-                      setModelsLoading(true);
-                      try {
-                        const r = await fetch("/api/models");
-                        const j = await r.json();
-                        const list = Array.isArray(j?.models) ? j.models : [];
-                        const healthy = list.filter(m => m.healthy === true);
-                        const roster = healthy.length ? healthy : list.length ? list : FALLBACK_FREE_MODELS;
-                        setModels(roster);
-                        await forceSelectAndTest(roster[0].id);
-                      } catch {
-                        setModels(FALLBACK_FREE_MODELS);
-                        await forceSelectAndTest(FALLBACK_FREE_MODELS[0].id);
-                      } finally {
-                        setModelsLoading(false);
-                      }
-                    }}
-                  >
-                    Refresh Working Models
-                  </button>
+                  <button style={btn("#3b82f6")} onClick={testAPIConnection}>Test Connection</button>
                   <button style={btn("#6b7280")} onClick={() => setG(p => ({
                     ...p, apiStats: { ...p.apiStats, totalCalls: 0, successfulCalls: 0, failedCalls: 0, totalTokensUsed: 0, lastError: null }
                   }))}>
                     Reset Stats
                   </button>
+                </div>
+                <div style={{ fontSize: 12, color: "#9aa3b2" }}>
+                  Your API key is stored server-side in Cloudflare Pages and never exposed in the browser.
                 </div>
                 {g.apiStats.lastError && (
                   <div style={{ ...card(), borderColor: "#7f1d1d" }}>
@@ -769,6 +945,7 @@ Respond with ONLY valid JSON in this exact format:
         </div>
       )}
 
+      {/* Shop */}
       {g.showShop && (
         <div style={modalBackdrop()}>
           <div style={modal({ maxWidth: 900 })}>
@@ -803,6 +980,7 @@ Respond with ONLY valid JSON in this exact format:
         </div>
       )}
 
+      {/* Map */}
       {g.showMap && (
         <div style={modalBackdrop()}>
           <div style={modal({ maxWidth: 720 })}>
