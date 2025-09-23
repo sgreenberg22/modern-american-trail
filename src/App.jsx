@@ -152,6 +152,7 @@ function newGameState(defaultModelId) {
     difficulty: "normal",
     stuckDays: 0,
     jailed: false,
+    lastOutcome: null,       // <— NEW: shows the immediate outcome of a decision
     apiStats: {
       connected: false,
       totalCalls: 0,
@@ -416,6 +417,42 @@ export default function App() {
     return null;
   }
 
+  function buildOutcomeDetails(prev, after, eff, movedIndexDelta) {
+    const lines = [];
+    const arrow = (v) => (v > 0 ? "▲" : "▼");
+
+    // Core stats
+    if (eff.health) lines.push(`Health: ${after.health}% (${arrow(eff.health)}${Math.abs(eff.health)}%)`);
+    if (eff.morale) lines.push(`Morale: ${after.morale}% (${arrow(eff.morale)}${Math.abs(eff.morale)}%)`);
+    if (eff.supplies) lines.push(`Supplies: ${after.supplies}% (${arrow(eff.supplies)}${Math.abs(eff.supplies)}%)`);
+    if (eff.money) {
+      const sign = eff.money > 0 ? "+" : "-";
+      lines.push(`Money: $${after.money} (${sign}$${Math.abs(eff.money)})`);
+    }
+
+    // Party-wide effects
+    if (eff.partyHealth) lines.push(`Party health: ${arrow(eff.partyHealth)}${Math.abs(eff.partyHealth)}% each`);
+    if (eff.partyMorale) lines.push(`Party morale: ${arrow(eff.partyMorale)}${Math.abs(eff.partyMorale)}% each`);
+    if (eff.partyMemberLoss) lines.push("A party member left the group.");
+
+    // Movement / status
+    if (eff.miles) lines.push(`Advanced ${eff.miles} mile${eff.miles === 1 ? "" : "s"}.`);
+    if (eff.milesBack) lines.push(`Backtracked ${eff.milesBack} mile${eff.milesBack === 1 ? "" : "s"}.`);
+    if (movedIndexDelta > 0) {
+      const newLoc = after.locations[after.currentLocationIndex];
+      lines.push(`Arrived at ${newLoc}.`);
+    }
+    if (eff.stuckDays) lines.push(`You are stuck for ${eff.stuckDays} day${eff.stuckDays === 1 ? "" : "s"}.`);
+    if (eff.sendToJail) lines.push("You were jailed. Travel disabled until release.");
+    if (eff.endGame === "win") lines.push("You reached your destination!");
+    if (eff.endGame === "lose") lines.push("You perished.");
+
+    // Always include the model’s short narrative line if present
+    if (eff.message) lines.unshift(eff.message);
+
+    return lines;
+  }
+
   async function generateEvent() {
     setG(prev => ({ ...prev, isLoading: true, lastError: null }));
     try {
@@ -542,6 +579,11 @@ ${schema}`;
   function handleChoice(choice) {
     const eff = sanitizeEffect(choice.effect || {});
     setG(prev => {
+      // Pre-calc movement & status to know if we changed location
+      const move = applyMovementAndStatus(prev, eff);
+      const movedIndexDelta = move.currentLocationIndex - prev.currentLocationIndex;
+
+      // Apply party effects
       let party = prev.party.map(m => ({
         ...m,
         health: Math.max(0, Math.min(100, m.health + (eff.partyHealth || 0))),
@@ -549,18 +591,21 @@ ${schema}`;
       }));
       if (eff.partyMemberLoss && party.length > 0) party = party.slice(0, -1);
 
+      // Core stat updates
       let nextHealth = Math.max(0, Math.min(100, prev.health + (eff.health || 0)));
       if (eff.endGame === "lose") nextHealth = 0;
 
-      const move = applyMovementAndStatus(prev, eff);
-
-      const newState = {
+      const afterBase = {
         ...prev,
         health: nextHealth,
         morale: Math.max(0, Math.min(100, prev.morale + (eff.morale || 0))),
         supplies: Math.max(0, Math.min(100, prev.supplies + (eff.supplies || 0))),
         money: Math.max(0, prev.money + (eff.money || 0)),
-        party,
+        party
+      };
+
+      const after = {
+        ...afterBase,
         currentLocationIndex: move.currentLocationIndex,
         distanceToNext: move.distanceToNext,
         totalDistance: move.totalDistance,
@@ -569,21 +614,40 @@ ${schema}`;
         currentEvent: null
       };
 
-      const msg = `${eff.message || "You made your choice."}${outcomeSummary(eff) ? " — " + outcomeSummary(eff) : ""}`;
-      const after = { ...newState };
+      // Build outcome message/details for the toast
+      const details = buildOutcomeDetails(prev, after, eff, movedIndexDelta);
+      const toast = {
+        title: prev.currentEvent?.title || "Outcome",
+        message: eff.message || "Your decision has consequences.",
+        details,
+        severe: eff.endGame === "lose" || eff.sendToJail || after.health <= 0
+      };
 
+      // Cascading event (mini section) if conditions hit
       const cascade = maybeCascadingEvent(choice.text || "", after);
       if (cascade) {
         cascade.choices = cascade.choices.map(c => ({ ...c, effect: sanitizeEffect(c.effect) }));
       }
 
+      const logLine = `${eff.message || "You made your choice."}${outcomeSummary(eff) ? " — " + outcomeSummary(eff) : ""}`;
+
       return {
         ...after,
+        lastOutcome: toast,
         currentEvent: cascade || null,
-        gameLog: [...prev.gameLog, { day: prev.day, event: prev.currentEvent.title, result: msg }]
+        gameLog: [...prev.gameLog, { day: prev.day, event: prev.currentEvent.title, result: logLine }]
       };
     });
   }
+
+  // Auto-dismiss the outcome toast after a few seconds
+  useEffect(() => {
+    if (!g.lastOutcome) return;
+    const t = setTimeout(() => {
+      setG(p => ({ ...p, lastOutcome: null }));
+    }, 6000);
+    return () => clearTimeout(t);
+  }, [g.lastOutcome]);
 
   function buyItem(item) {
     const price = item.basePrice + Math.floor(Math.random() * 20) - 10;
@@ -672,6 +736,12 @@ ${schema}`;
     [g.locations, g.currentLocationIndex]
   );
 
+  // DESCENDING recent log (newest first)
+  const recentLog = useMemo(() => {
+    const lastTen = g.gameLog.slice(-10);
+    return lastTen.reverse();
+  }, [g.gameLog]);
+
   return (
     <div style={{ minHeight: "100vh", background: "linear-gradient(to bottom,#7f1d1d,#111827)", color: "#fff" }}>
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: 16 }}>
@@ -735,7 +805,6 @@ ${schema}`;
               <div style={{ fontWeight: 700, color: "#fde68a" }}>{currentLocation}</div>
               <div style={{ marginLeft: "auto", background: "#1f2937", borderRadius: 6, padding: "2px 8px" }}>Day {g.day}</div>
             </div>
-            {/* FIXED: removed stray quote after gap: 6 */}
             <div style={{ fontSize: 14, color: "#aeb6c7", display: "grid", gap: 6 }}>
               <Row label="Distance to next" value={<span style={{ color: "#60a5fa", fontFamily: "ui-monospace,monospace" }}>{g.distanceToNext} miles</span>} />
               <Row label="Total traveled" value={<span style={{ color: "#34d399", fontFamily: "ui-monospace,monospace" }}>{g.totalDistance} miles</span>} />
@@ -843,12 +912,12 @@ ${schema}`;
           </div>
         </div>
 
-        {/* Log */}
+        {/* Log (DESCENDING newest first) */}
         {g.gameLog.length > 0 && (
           <div style={{ ...card(), marginTop: 16 }}>
             <div style={{ fontWeight: 600, marginBottom: 6 }}>Journey Log</div>
             <div style={{ display: "grid", gap: 6, maxHeight: 180, overflowY: "auto" }}>
-              {g.gameLog.slice(-10).map((line, i) => (
+              {recentLog.map((line, i) => (
                 <div key={i} style={{ color: "#cbd5e1", fontSize: 14 }}>
                   <strong>Day {line.day}:</strong> {line.event} — {line.result}
                 </div>
@@ -969,6 +1038,28 @@ ${schema}`;
                 <Row label="Upcoming:" value={<span>{upcoming.join(" • ") || "—"}</span>} />
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Outcome Toast */}
+      {g.lastOutcome && (
+        <div style={{ position: "fixed", right: 16, bottom: 16, maxWidth: 460, zIndex: 60 }}>
+          <div style={{ ...card(), border: `1px solid ${g.lastOutcome.severe ? "#7f1d1d" : "#232a36"}`, boxShadow: "0 10px 20px rgba(0,0,0,0.35)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <strong>Outcome: {g.lastOutcome.title}</strong>
+              <button
+                onClick={() => setG(p => ({ ...p, lastOutcome: null }))}
+                style={{ ...btn("#1f2937"), padding: "4px 8px", lineHeight: 1 }}
+                aria-label="Dismiss outcome"
+              >
+                ×
+              </button>
+            </div>
+            <div style={{ color: "#cbd5e1", fontSize: 14, marginBottom: 6 }}>{g.lastOutcome.message}</div>
+            <ul style={{ margin: 0, paddingLeft: 16, color: "#aeb6c7", fontSize: 13, display: "grid", gap: 4 }}>
+              {g.lastOutcome.details.map((d, i) => <li key={i}>{d}</li>)}
+            </ul>
           </div>
         </div>
       )}
