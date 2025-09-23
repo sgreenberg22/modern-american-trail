@@ -98,15 +98,13 @@ const EFFECT_LIMITS = {
   stuckDays: { min: 0, max: 5 }
 };
 
-// sanitize & clamp effect payloads so wild outputs don't break the game
 function sanitizeEffect(raw = {}) {
   const e = { ...raw };
   const num = (v, d = 0) => (typeof v === "number" && isFinite(v) ? v : d);
-
   const clamp = (v, { min, max }) => Math.max(min, Math.min(max, v));
   const pct = (v) => clamp(num(v), EFFECT_LIMITS.percent);
 
-  const effect = {
+  return {
     health: pct(e.health || 0),
     morale: pct(e.morale || 0),
     supplies: pct(e.supplies || 0),
@@ -121,7 +119,6 @@ function sanitizeEffect(raw = {}) {
     endGame: e.endGame === "win" || e.endGame === "lose" ? e.endGame : null,
     message: typeof e.message === "string" ? e.message : ""
   };
-  return effect;
 }
 
 function newGameState(defaultModelId) {
@@ -153,11 +150,8 @@ function newGameState(defaultModelId) {
     milesPerDay: 0,
     gameStartTime: Date.now(),
     difficulty: "normal",
-
-    // status effects
     stuckDays: 0,
     jailed: false,
-
     apiStats: {
       connected: false,
       totalCalls: 0,
@@ -233,7 +227,6 @@ export default function App() {
   const [models, setModels] = useState(FALLBACK_FREE_MODELS);
   const [modelsLoading, setModelsLoading] = useState(true);
 
-  // pick first healthy model as initial
   const initialModelId = useMemo(() => {
     const healthy = models.find(m => m.healthy) || models[0];
     return healthy?.id || FALLBACK_FREE_MODELS[0].id;
@@ -254,7 +247,6 @@ export default function App() {
         const j = await r.json().catch(() => ({}));
         const list = Array.isArray(j?.models) ? j.models : [];
         if (list.length > 0) {
-          // only keep healthy or all if none healthy
           const healthy = list.filter(m => m.healthy);
           const next = healthy.length > 0 ? healthy : list;
           setModels(next);
@@ -273,7 +265,6 @@ export default function App() {
     })();
   }, []);
 
-  // Always force a model at mount or when models change
   useEffect(() => {
     setG(prev => {
       if (!prev.selectedModel) {
@@ -353,15 +344,12 @@ export default function App() {
     return parts.join(" • ");
   }
 
-  // Move/Status application extracted for clarity
   function applyMovementAndStatus(prev, effect) {
     let { currentLocationIndex, distanceToNext, totalDistance, stuckDays, jailed } = prev;
 
-    // backtracking first
     if (effect.milesBack > 0) {
       distanceToNext += effect.milesBack;
       totalDistance = Math.max(0, totalDistance - effect.milesBack);
-      // If we exceed a threshold, move to previous location(s)
       const avgLeg = 80;
       while (distanceToNext > avgLeg && currentLocationIndex > 0) {
         currentLocationIndex -= 1;
@@ -369,7 +357,6 @@ export default function App() {
       }
     }
 
-    // forward movement
     if (effect.miles > 0) {
       distanceToNext = Math.max(0, distanceToNext - effect.miles);
       totalDistance += effect.miles;
@@ -379,27 +366,20 @@ export default function App() {
       }
     }
 
-    // stuck/jail
     if (effect.stuckDays > 0) stuckDays += effect.stuckDays;
     if (effect.sendToJail) { jailed = true; stuckDays = Math.max(stuckDays, 2); }
 
-    // endgame shortcuts if requested by AI
     if (effect.endGame === "win") {
       currentLocationIndex = prev.locations.length - 1;
       distanceToNext = 0;
-    }
-    if (effect.endGame === "lose") {
-      // health will be set to 0 by caller via effect clamp if desired; we ensure lose by returning a flag
     }
 
     return { currentLocationIndex, distanceToNext, totalDistance, stuckDays, jailed };
   }
 
-  // Optional cascading event to ensure drama even if AI is tame
   function maybeCascadingEvent(choiceText, stateAfterChoice) {
     const r = Math.random();
 
-    // high risk: low health
     if (stateAfterChoice.health < 30 && r < 0.35) {
       return {
         title: "Medical Emergency",
@@ -411,7 +391,6 @@ export default function App() {
       };
     }
 
-    // low supplies
     if (stateAfterChoice.supplies < 20 && r < 0.45) {
       return {
         title: "Starvation Crisis",
@@ -423,7 +402,6 @@ export default function App() {
       };
     }
 
-    // if choice sounded shady, maybe get pursued
     if (/(bribe|hack|steal|sabotage|resist|fight)/i.test(choiceText) && r < 0.35) {
       return {
         title: "Authorities On Your Tail",
@@ -452,7 +430,6 @@ export default function App() {
         distanceToNext: g.distanceToNext,
         totalDistance: g.totalDistance,
         difficulty: g.difficulty,
-        // hints for the model
         stuckDays: g.stuckDays,
         jailed: g.jailed
       };
@@ -465,18 +442,18 @@ export default function App() {
     {
       "text": "string",
       "effect": {
-        "health": -20..20,               // group health %
-        "morale": -25..25,               // group morale %
-        "supplies": -50..50,             // supplies %
-        "money": -500..500,              // dollars
-        "partyHealth": -20..20,          // each member health %
-        "partyMorale": -20..20,          // each member morale %
-        "miles": 0..100,                 // move forward this many miles
-        "milesBack": 0..100,             // backtrack this many miles
-        "stuckDays": 0..3,               // days unable to travel
-        "sendToJail": true|false,        // sets stuck/jail state
-        "partyMemberLoss": true|false,   // one member leaves
-        "endGame": "win"|"lose"|null,    // optional immediate ending
+        "health": -20..20,
+        "morale": -25..25,
+        "supplies": -50..50,
+        "money": -500..500,
+        "partyHealth": -20..20,
+        "partyMorale": -20..20,
+        "miles": 0..100,
+        "milesBack": 0..100,
+        "stuckDays": 0..3,
+        "sendToJail": true|false,
+        "partyMemberLoss": true|false,
+        "endGame": "win"|"lose"|null,
         "message": "short outcome line"
       }
     }
@@ -505,7 +482,6 @@ ${schema}`;
         throw new Error("Event missing required fields");
       }
 
-      // sanitize all effects
       eventData.choices = eventData.choices.map(c => ({
         text: String(c?.text || "Choose"),
         effect: sanitizeEffect(c?.effect || {})
@@ -566,7 +542,6 @@ ${schema}`;
   function handleChoice(choice) {
     const eff = sanitizeEffect(choice.effect || {});
     setG(prev => {
-      // party changes (health/morale)
       let party = prev.party.map(m => ({
         ...m,
         health: Math.max(0, Math.min(100, m.health + (eff.partyHealth || 0))),
@@ -574,11 +549,9 @@ ${schema}`;
       }));
       if (eff.partyMemberLoss && party.length > 0) party = party.slice(0, -1);
 
-      // endgame "lose" via health drop to zero if requested
       let nextHealth = Math.max(0, Math.min(100, prev.health + (eff.health || 0)));
       if (eff.endGame === "lose") nextHealth = 0;
 
-      // apply movement/status
       const move = applyMovementAndStatus(prev, eff);
 
       const newState = {
@@ -599,10 +572,8 @@ ${schema}`;
       const msg = `${eff.message || "You made your choice."}${outcomeSummary(eff) ? " — " + outcomeSummary(eff) : ""}`;
       const after = { ...newState };
 
-      // maybe spawn a cascading event to spice things up
       const cascade = maybeCascadingEvent(choice.text || "", after);
       if (cascade) {
-        // sanitize cascade effects too
         cascade.choices = cascade.choices.map(c => ({ ...c, effect: sanitizeEffect(c.effect) }));
       }
 
@@ -636,14 +607,12 @@ ${schema}`;
   }
 
   function advanceDay() {
-    // If stuck/jail, you can't move, just tick the penalty day down
     if (g.stuckDays > 0) {
       setG(prev => ({
         ...prev,
         day: prev.day + 1,
         stuckDays: prev.stuckDays - 1,
-        jailed: prev.stuckDays - 1 > 0 ? prev.jailed : false, // free when done
-        // small attrition while stuck
+        jailed: prev.stuckDays - 1 > 0 ? prev.jailed : false,
         health: Math.max(0, prev.health - 2),
         morale: Math.max(0, prev.morale - 3),
         supplies: Math.max(0, prev.supplies - 4),
@@ -676,7 +645,7 @@ ${schema}`;
         morale: Math.max(0, m.morale - (3 + Math.floor(Math.random() * 6)))
       }));
 
-      const next = {
+      return {
         ...prev,
         day: prev.day + 1,
         totalDistance: prev.totalDistance + miles,
@@ -688,7 +657,6 @@ ${schema}`;
         party: newParty,
         currentEvent: null
       };
-      return next;
     });
 
     setTimeout(() => {
@@ -767,7 +735,8 @@ ${schema}`;
               <div style={{ fontWeight: 700, color: "#fde68a" }}>{currentLocation}</div>
               <div style={{ marginLeft: "auto", background: "#1f2937", borderRadius: 6, padding: "2px 8px" }}>Day {g.day}</div>
             </div>
-            <div style={{ fontSize: 14, color: "#aeb6c7", display: "grid", gap: 6" }}>
+            {/* FIXED: removed stray quote after gap: 6 */}
+            <div style={{ fontSize: 14, color: "#aeb6c7", display: "grid", gap: 6 }}>
               <Row label="Distance to next" value={<span style={{ color: "#60a5fa", fontFamily: "ui-monospace,monospace" }}>{g.distanceToNext} miles</span>} />
               <Row label="Total traveled" value={<span style={{ color: "#34d399", fontFamily: "ui-monospace,monospace" }}>{g.totalDistance} miles</span>} />
               <Row label="Progress" value={<span style={{ color: "#c084fc" }}>{g.currentLocationIndex}/{g.locations.length - 1}</span>} />
