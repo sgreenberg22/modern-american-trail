@@ -5,6 +5,13 @@ import {
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
+/* Constants (Jail balancing & escape)                                 */
+/* ------------------------------------------------------------------ */
+const EARLY_JAIL_GUARD_DAYS = 3; // ✅ No jail before Day 4
+const JAIL_MAX_DAYS = 5;         // ✅ Guaranteed release by this day-in-jail cap
+const JAIL_ESCAPE_BASE = 0.35;   // ✅ Base escape chance on first jail day
+
+/* ------------------------------------------------------------------ */
 /* Server helpers (Cloudflare Pages Functions)                        */
 /* ------------------------------------------------------------------ */
 async function chat({ model, messages, max_tokens = 700, temperature = 0.7 }) {
@@ -152,6 +159,7 @@ function newGameState(defaultModelId) {
     difficulty: "normal",
     stuckDays: 0,
     jailed: false,
+    daysInJail: 0, // ✅ NEW: cumulative days served in current jail stint
     lastOutcome: null,
     apiStats: {
       connected: false,
@@ -159,10 +167,10 @@ function newGameState(defaultModelId) {
       successfulCalls: 0,
       failedCalls: 0,
       totalTokensUsed: 0,
-      tokensPrompt: 0,
-      tokensCompletion: 0,
-      aiPrompts: 0,
-      hardcodedPrompts: 0,
+      promptTokens: 0,       // ✅ NEW
+      completionTokens: 0,   // ✅ NEW
+      aiEventCount: 0,       // ✅ NEW
+      hardcodedEventCount: 0,// ✅ NEW
       lastCallTime: null,
       currentModel: defaultModel,
       lastError: null
@@ -257,11 +265,45 @@ const shopItems = [
 ];
 
 /* ------------------------------------------------------------------ */
+/* Local Save/Load helpers                                             */
+/* ------------------------------------------------------------------ */
+const SAVE_KEY = "trailgame.save.v2";
+function saveLocal(state) {
+  try {
+    const snapshot = { ...state, _meta: { version: 2, savedAt: new Date().toISOString() } };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(snapshot));
+    return true;
+  } catch (e) {
+    console.warn("Save failed", e);
+    return false;
+  }
+}
+function loadLocal() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    // Migrations / defaults
+    parsed.daysInJail ??= 0;
+    parsed.apiStats ??= {};
+    parsed.apiStats.promptTokens ??= 0;
+    parsed.apiStats.completionTokens ??= 0;
+    parsed.apiStats.aiEventCount ??= 0;
+    parsed.apiStats.hardcodedEventCount ??= 0;
+    return parsed;
+  } catch (e) {
+    console.warn("Load failed", e);
+    return null;
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* App                                                                 */
 /* ------------------------------------------------------------------ */
 export default function App() {
   const [models, setModels] = useState(FALLBACK_FREE_MODELS);
   const [modelsLoading, setModelsLoading] = useState(true);
+  const fileInputRef = useRef(null);
 
   const initialModelId = useMemo(() => {
     const healthy = models.find(m => m.healthy) || models[0];
@@ -269,8 +311,6 @@ export default function App() {
   }, [models]);
 
   const [g, setG] = useState(() => newGameState(initialModelId));
-
-  const fileInputRef = useRef(null);
 
   const currentLocation = g.locations[g.currentLocationIndex];
   const progressPct = Math.round((g.currentLocationIndex / (g.locations.length - 1)) * 100);
@@ -337,8 +377,8 @@ export default function App() {
           lastCallTime: new Date().toLocaleTimeString(),
           currentModel: g.selectedModel,
           totalTokensUsed: prev.apiStats.totalTokensUsed + (data?.usage?.total_tokens || 5),
-          tokensPrompt: prev.apiStats.tokensPrompt + (data?.usage?.prompt_tokens || 0),
-          tokensCompletion: prev.apiStats.tokensCompletion + (data?.usage?.completion_tokens || 0),
+          promptTokens: prev.apiStats.promptTokens + (data?.usage?.prompt_tokens || 0),
+          completionTokens: prev.apiStats.completionTokens + (data?.usage?.completion_tokens || 0)
         }
       }));
     } catch (e) {
@@ -384,7 +424,7 @@ export default function App() {
   }
 
   function applyMovementAndStatus(prev, effect) {
-    let { currentLocationIndex, distanceToNext, totalDistance, stuckDays, jailed } = prev;
+    let { currentLocationIndex, distanceToNext, totalDistance, stuckDays, jailed, daysInJail } = prev;
 
     if (effect.milesBack > 0) {
       distanceToNext += effect.milesBack;
@@ -406,14 +446,14 @@ export default function App() {
     }
 
     if (effect.stuckDays > 0) stuckDays += effect.stuckDays;
-    if (effect.sendToJail) { jailed = true; stuckDays = Math.max(stuckDays, 2); }
+    if (effect.sendToJail) { jailed = true; stuckDays = Math.max(stuckDays, 2); daysInJail = 0; }
 
     if (effect.endGame === "win") {
       currentLocationIndex = prev.locations.length - 1;
       distanceToNext = 0;
     }
 
-    return { currentLocationIndex, distanceToNext, totalDistance, stuckDays, jailed };
+    return { currentLocationIndex, distanceToNext, totalDistance, stuckDays, jailed, daysInJail };
   }
 
   function maybeCascadingEvent(choiceText, stateAfterChoice) {
@@ -533,7 +573,6 @@ export default function App() {
 Rules:
 - At least ONE of: miles, milesBack, stuckDays, sendToJail, partyHealth/partyMorale, or endGame MUST be impactful (>0 or true).
 - Keep numbers proportional to the current state (avoid lethal spikes if health/morale already low).
-- Avoid jailing events in the first 3 days under any circumstance.
 - Tailor to location "${currentLocation}" and tone: darkly humorous satire of authoritarian conservatism.
 - OUTPUT ONLY JSON. No markdown.`;
 
@@ -568,10 +607,10 @@ ${schema}`;
           connected: true,
           totalCalls: prev.apiStats.totalCalls + 1,
           successfulCalls: prev.apiStats.successfulCalls + 1,
-          aiPrompts: prev.apiStats.aiPrompts + 1,
+          aiEventCount: prev.apiStats.aiEventCount + 1, // ✅ track AI events
           totalTokensUsed: prev.apiStats.totalTokensUsed + (data?.usage?.total_tokens || 0),
-          tokensPrompt: prev.apiStats.tokensPrompt + (data?.usage?.prompt_tokens || 0),
-          tokensCompletion: prev.apiStats.tokensCompletion + (data?.usage?.completion_tokens || 0),
+          promptTokens: prev.apiStats.promptTokens + (data?.usage?.prompt_tokens || 0),
+          completionTokens: prev.apiStats.completionTokens + (data?.usage?.completion_tokens || 0),
           lastCallTime: new Date().toLocaleTimeString()
         }
       }));
@@ -607,7 +646,7 @@ ${schema}`;
           connected: false,
           totalCalls: prev.apiStats.totalCalls + 1,
           failedCalls: prev.apiStats.failedCalls + 1,
-          hardcodedPrompts: prev.apiStats.hardcodedPrompts + 1,
+          hardcodedEventCount: prev.apiStats.hardcodedEventCount + 1, // ✅ track fallback events
           lastCallTime: new Date().toLocaleTimeString(),
           lastError: e.message
         }
@@ -616,24 +655,11 @@ ${schema}`;
   }
 
   function handleChoice(choice) {
-    const baseEff = sanitizeEffect(choice.effect || {});
+    const eff0 = sanitizeEffect(choice.effect || {});
     setG(prev => {
-      const eff = { ...baseEff };
-
-      // 🔒 Jail gating to avoid early insta-jail and reduce frequency overall
-      if (eff.sendToJail) {
-        if (prev.day <= 3) {
-          eff.sendToJail = false; // never jail in first 3 days
-        } else {
-          // 40% chance to actually enforce jail; otherwise convert to short stuck
-          const enforce = Math.random() < 0.4;
-          if (!enforce) {
-            eff.sendToJail = false;
-            eff.stuckDays = Math.max(eff.stuckDays || 0, 1);
-            eff.message = eff.message || "You narrowly avoid jail, but you're delayed.";
-          }
-        }
-      }
+      const eff = { ...eff0 };
+      // ✅ Guard: no jail in the first few days
+      if (eff.sendToJail && prev.day <= EARLY_JAIL_GUARD_DAYS) eff.sendToJail = false;
 
       const wasStuck = prev.stuckDays > 0;
 
@@ -662,10 +688,14 @@ ${schema}`;
         totalDistance: move.totalDistance,
         stuckDays: move.stuckDays,
         jailed: move.jailed,
+        daysInJail: move.daysInJail,
         currentEvent: null
       };
 
-      // NOTE: We now decrement stuck time + advance day inside onContinue, not here.
+      // If we were stuck (non-jail) and the effect didn't add stuck days, tick down one
+      if (wasStuck && !after.jailed && eff.stuckDays === 0) {
+        after.stuckDays = Math.max(0, after.stuckDays - 1);
+      }
 
       const details = buildOutcomeDetails(prev, after, eff, movedIndexDelta);
       const toast = {
@@ -768,58 +798,64 @@ ${schema}`;
     }, 500);
   }
 
-  // Single CTA: Continue (reworked to advance time while jailed/stuck)
-  function onContinue() {
-    if (g.currentEvent) return; // wait for choice
+  // ✅ JAIL DAY TICK: advance day while jailed, increase escape chance, auto-release by cap
+  function advanceJailDay() {
+    setG(prev => {
+      const nextDay = prev.day + 1;
+      const nextDaysInJail = prev.daysInJail + 1;
+      const bonus = 0.10 * (nextDaysInJail - 1);
+      const chance = Math.min(0.95, JAIL_ESCAPE_BASE + bonus);
+      const guaranteed = nextDaysInJail >= JAIL_MAX_DAYS;
+      const escaped = guaranteed || Math.random() < chance;
 
-    if (g.stuckDays > 0 || g.jailed) {
-      // While jailed/stuck: day advances, stuck decreases, then prompt an event (no travel)
-      setG(prev => {
-        const nextStuck = Math.max(0, prev.stuckDays - 1);
-        const log = nextStuck !== prev.stuckDays
-          ? [...prev.gameLog, { day: prev.day, event: "Jail Day", result: `You wait out the day. ${nextStuck} day(s) remain.` }]
-          : prev.gameLog;
-        return {
-          ...prev,
-          day: prev.day + 1,
-          stuckDays: nextStuck,
-          jailed: nextStuck > 0 ? prev.jailed : false,
-          gameLog: log
-        };
-      });
-      setTimeout(() => {
-        setG(curr => { if (!curr.currentEvent) generateEvent(); return curr; });
-      }, 400);
+      const after = {
+        ...prev,
+        day: nextDay,
+        daysInJail: escaped ? 0 : nextDaysInJail,
+        stuckDays: escaped ? 0 : Math.max(0, prev.stuckDays - 1), // chip will update if you seeded stuck days
+        jailed: escaped ? false : true,
+        currentEvent: null
+      };
+
+      // Log line for jail day
+      const note = escaped
+        ? `Released from jail after ${nextDaysInJail} day${nextDaysInJail === 1 ? "" : "s"}.`
+        : `Served a day in jail (${nextDaysInJail}/${JAIL_MAX_DAYS}).`;
+
+      after.gameLog = [...prev.gameLog, { day: nextDay, event: "Jail", result: note }];
+
+      // Toast
+      after.lastOutcome = {
+        title: "Jail Status",
+        message: note,
+        details: [escaped ? "You're free to travel again." : `Escape chance next day rises.`],
+        severe: !escaped
+      };
+
+      return after;
+    });
+
+    // Offer a jail-themed event after ticking the day
+    setTimeout(() => generateEvent(), 400);
+  }
+
+  // Single CTA: Continue
+  function onContinue() {
+    if (g.currentEvent) return;
+
+    if (g.jailed) {
+      // While jailed, the day advances and jail timer updates
+      advanceJailDay();
       return;
     }
 
-    // Not stuck: normal travel day
-    advanceDay();
-  }
-
-  function handleImportClick() {
-    fileInputRef.current?.click();
-  }
-
-  function handleFileChosen(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const obj = JSON.parse(String(reader.result || "{}"));
-        // Minimal validation
-        if (!obj || typeof obj !== "object" || !Array.isArray(obj.locations) || typeof obj.day !== "number") {
-          throw new Error("Invalid save file");
-        }
-        setG(obj);
-      } catch (err) {
-        alert(`Failed to import save: ${err.message}`);
-      }
-    };
-    reader.readAsText(file);
-    // reset input so same file can be re-imported if needed
-    e.target.value = "";
+    if (g.stuckDays > 0) {
+      // While stuck (non-jail), only create an event; do not advance travel day
+      generateEvent();
+    } else {
+      // Not stuck: advance the day (travel) and then event triggers automatically
+      advanceDay();
+    }
   }
 
   const upcoming = useMemo(
@@ -835,10 +871,34 @@ ${schema}`;
 
   const gradientBg = "linear-gradient(135deg,#0f172a 0%, #1e293b 30%, #7c3aed 60%, #f43f5e 100%)";
 
+  // Save/Load actions
+  function exportSave() {
+    const blob = new Blob([JSON.stringify(g, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `modern_trail_${isWin ? "victory" : "run"}_${g.day}days.json`;
+    a.click();
+  }
+  function importSaveFromFile(file) {
+    if (!file) return;
+    const fr = new FileReader();
+    fr.onload = () => {
+      try {
+        const parsed = JSON.parse(String(fr.result || "{}"));
+        setG(parsed);
+      } catch (e) {
+        alert("Invalid save file");
+      }
+    };
+    fr.readAsText(file);
+  }
+
   const aiRatio = (() => {
-    const total = g.apiStats.aiPrompts + g.apiStats.hardcodedPrompts;
-    if (total === 0) return 1;
-    return g.apiStats.aiPrompts / total;
+    const a = g.apiStats.aiEventCount || 0;
+    const h = g.apiStats.hardcodedEventCount || 0;
+    const denom = a + h;
+    return denom === 0 ? 1 : a / denom;
   })();
 
   return (
@@ -856,12 +916,14 @@ ${schema}`;
             </span>
             <span style={chip("rgba(59,130,246,0.15)")}>Model: {g.selectedModel}</span>
             <span style={chip("rgba(250,204,21,0.15)")}>Day {g.day}</span>
-            {g.stuckDays > 0 && (
-              <span style={chip("rgba(124,45,18,0.25)")}>
-                ⛔ Stuck {g.jailed ? "(Jailed) " : ""}{g.stuckDays} day{g.stuckDays === 1 ? "" : "s"} remaining
-              </span>
+            {g.jailed && (
+              <span style={chip("rgba(124,45,18,0.25)")}>⛔ Jailed — Day {g.daysInJail || 0} of ≤{JAIL_MAX_DAYS}</span>
             )}
-            <span style={chip("rgba(101,163,13,0.18)")}>AI gen: {(aiRatio * 100).toFixed(0)}%</span>
+            {g.stuckDays > 0 && !g.jailed && (
+              <span style={chip("rgba(124,45,18,0.25)")}>⛔ Stuck {g.stuckDays} day{g.stuckDays === 1 ? "" : "s"} remaining</span>
+            )}
+            <span style={chip("rgba(168,85,247,0.20)")}>AI ratio: {(aiRatio * 100).toFixed(1)}%</span>
+            <span style={chip("rgba(34,197,94,0.18)")}>Tokens: P {g.apiStats.promptTokens} / C {g.apiStats.completionTokens}</span>
           </div>
         </div>
 
@@ -871,26 +933,16 @@ ${schema}`;
             <button title="Map" style={btn()} onClick={() => setG(p => ({ ...p, showMap: true }))}><MapIcon size={18} /></button>
             <button title="Black Market" style={btn("#1d3b2d")} onClick={() => setG(p => ({ ...p, showShop: true }))}><ShoppingCart size={18} /></button>
             <button title="Settings" style={btn("#1c2d4a")} onClick={() => setG(p => ({ ...p, showSettings: true }))}><Settings size={18} /></button>
-            <button title="New Game" style={btn("#3b1d0c")} onClick={() => setG(newGameState(models.find(m => m.healthy)?.id || models[0]?.id))}>New</button>
-            <button
-              title="Export Save"
-              style={btn("#2a1f4a")}
-              onClick={() => {
-                const blob = new Blob([JSON.stringify(g, null, 2)], { type: "application/json" });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `modern_trail_${isWin ? "victory" : "run"}_${g.day}days.json`;
-                a.click();
-              }}
-            >
-              <Save size={18} />
-            </button>
-            <button title="Import Save" style={btn("#243b53")} onClick={handleImportClick}><Upload size={18} /></button>
-            <input ref={fileInputRef} onChange={handleFileChosen} type="file" accept="application/json" style={{ display: "none" }} />
+            <button title="New Game" style={btn("#3b1d0c")} onClick={() => setG(newGameState(models.find(m => m.healthy)?.id || models[0]?.id))}><Upload size={18} /></button>
+            {/* Save/Load */}
+            <button title="Export Save" style={btn("#2a1f4a")} onClick={exportSave}><Save size={18} /></button>
+            <button title="Save (Local)" style={btn("#20314d")} onClick={() => saveLocal(g)}>Save Local</button>
+            <button title="Load (Local)" style={btn("#20314d")} onClick={() => { const s = loadLocal(); if (s) setG(s); }}>Load Local</button>
+            <button title="Import Save (JSON)" style={btn("#20314d")} onClick={() => fileInputRef.current?.click()}>Import</button>
+            <input ref={fileInputRef} type="file" accept="application/json" style={{ display: "none" }} onChange={e => importSaveFromFile(e.target.files?.[0])} />
           </div>
 
-          {/* NOTE: Removed the duplicate top Continue button. Keep only the middle prompt-area button below. */}
+          {/* ❌ Removed the TOP Continue button on purpose */}
         </div>
 
         {/* Stats */}
@@ -972,8 +1024,8 @@ ${schema}`;
                   Another day dawns in this authoritarian wasteland. What challenges await at{" "}
                   <span style={{ color: "#fde68a", fontWeight: 700 }}>{currentLocation}</span>?
                 </p>
-                <button style={primaryBtn()} onClick={onContinue} disabled={g.isLoading}>
-                  {g.stuckDays > 0 ? "Continue (Wait It Out)" : "Continue"}
+                <button style={primaryBtn()} onClick={onContinue}>
+                  {g.jailed ? "Continue (Jail Day)" : g.stuckDays > 0 ? "Continue (Handle Situation)" : "Continue"}
                 </button>
               </>
             )}
@@ -1059,18 +1111,10 @@ ${schema}`;
                     </div>
                   )}
                 </label>
-                <div style={{ display: "grid", gap: 4, fontSize: 13, color: "#cbd5e1" }}>
-                  <div>AI prompts: <strong>{g.apiStats.aiPrompts}</strong></div>
-                  <div>Hard-coded prompts: <strong>{g.apiStats.hardcodedPrompts}</strong></div>
-                  <div>AI usage ratio: <strong>{(aiRatio * 100).toFixed(1)}%</strong></div>
-                  <div>Prompt tokens: <strong>{g.apiStats.tokensPrompt}</strong></div>
-                  <div>Completion tokens: <strong>{g.apiStats.tokensCompletion}</strong></div>
-                  <div>Total tokens (all): <strong>{g.apiStats.totalTokensUsed}</strong></div>
-                </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button style={btn("#1c2d4a")} onClick={testAPIConnection}>Test Connection</button>
                   <button style={btn("#3a3f52")} onClick={() => setG(p => ({
-                    ...p, apiStats: { ...p.apiStats, totalCalls: 0, successfulCalls: 0, failedCalls: 0, totalTokensUsed: 0, tokensPrompt: 0, tokensCompletion: 0, aiPrompts: 0, hardcodedPrompts: 0, lastError: null }
+                    ...p, apiStats: { ...p.apiStats, totalCalls: 0, successfulCalls: 0, failedCalls: 0, totalTokensUsed: 0, promptTokens: 0, completionTokens: 0, aiEventCount: 0, hardcodedEventCount: 0, lastError: null }
                   }))}>
                     Reset Stats
                   </button>
