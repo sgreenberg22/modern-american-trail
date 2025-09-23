@@ -14,7 +14,7 @@ export async function onRequestGet(context) {
     { id: "microsoft/phi-3-mini-128k-instruct:free", name: "Phi-3 Mini 128k (Free)" },
     { id: "qwen/qwen-2-7b-instruct:free", name: "Qwen 2 7B (Free)" },
     { id: "openchat/openchat-7b:free", name: "OpenChat 7B (Free)" },
-    { id: "x-ai/grok-4-fast:freee", name: "Grok-4-Fast (Free)" }
+    { id: "x-ai/grok-4-fast:free", name: "Grok-4-Fast (Free)" }
   ];
 
   // Probe a model with a tiny completion; mark healthy if we get "OK"
