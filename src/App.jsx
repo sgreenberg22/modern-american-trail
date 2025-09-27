@@ -59,9 +59,29 @@ const FALLBACK_FREE_MODELS = [
 /* ------------------------------------------------------------------ */
 /* Game setup                                                          */
 /* ------------------------------------------------------------------ */
+
+const CHARACTER_POOL = [
+  { name: "Alex", profession: "Hacker", bonus: { money: 250 }, skills: ["hacking"] },
+  { name: "Sam", profession: "Journalist", bonus: { morale: 20 }, skills: ["persuasion"] },
+  { name: "Jordan", profession: "Prepper", bonus: { supplies: 25 }, skills: ["survival"] },
+  { name: "Casey", profession: "Mechanic", bonus: { health: 10 }, skills: ["mechanical"] },
+  { name: "Taylor", profession: "Doctor", bonus: { partyHealth: 15 }, skills: ["medical"] },
+  { name: "Morgan", profession: "Lawyer", bonus: { money: 100, morale: 5 }, skills: ["negotiation"] },
+  { name: "Riley", profession: "Ex-Cop", bonus: { supplies: 10, morale: -5 }, skills: ["intimidation"] },
+  { name: "Jessie", profession: "Black Market Smuggler", bonus: { money: 150, supplies: 10 }, skills: ["stealth"] },
+];
+
+function shuffle(array) {
+  for (let i = array.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [array[i], array[j]] = [array[j], array[i]];
+  }
+  return array;
+}
+
 function generateLocations() {
   const baseLocations = [
-    { name: "Liberal Enclave of Portland", type: "city" },
+    { name: "Liberal Paradise of Portland", type: "city" },
     { name: "The Censored City (formerly Seattle)", type: "city" },
     { name: "Book Burning Fields of Idaho", type: "city" },
     { name: "Surveillance State of Montana", type: "city" },
@@ -131,7 +151,9 @@ function sanitizeEffect(raw = {}) {
 
 function newGameState(defaultModelId) {
   const defaultModel = defaultModelId || FALLBACK_FREE_MODELS[0].id;
-  return {
+  const partyMembers = shuffle([...CHARACTER_POOL]).slice(0, 3);
+
+  const state = {
     locations: generateLocations(),
     currentLocationIndex: 0,
     destination: "Safe Haven of Vermont",
@@ -140,11 +162,8 @@ function newGameState(defaultModelId) {
     morale: 75,
     supplies: 80,
     money: 500,
-    party: [
-      { name: "Alex", profession: "Former Tech Worker", health: 100, morale: 75 },
-      { name: "Jordan", profession: "Banned Teacher", health: 100, morale: 75 },
-      { name: "Sam", profession: "Fact-Checker", health: 100, morale: 75 }
-    ],
+    party: [],
+    skills: [],
     gameLog: [],
     currentEvent: null,
     isLoading: false,
@@ -152,6 +171,8 @@ function newGameState(defaultModelId) {
     showSettings: false,
     showShop: false,
     showMap: false,
+    showUpgradeShop: false,
+    purchasedUpgrades: [],
     lastError: null,
     totalDistance: 0,
     distanceToNext: Math.floor(Math.random() * 50) + 30,
@@ -160,7 +181,7 @@ function newGameState(defaultModelId) {
     difficulty: "normal",
     stuckDays: 0,
     jailed: false,
-    daysInJail: 0, // ✅ NEW: cumulative days served in current jail stint
+    daysInJail: 0,
     lastOutcome: null,
     apiStats: {
       connected: false,
@@ -168,15 +189,46 @@ function newGameState(defaultModelId) {
       successfulCalls: 0,
       failedCalls: 0,
       totalTokensUsed: 0,
-      promptTokens: 0,       // ✅ NEW
-      completionTokens: 0,   // ✅ NEW
-      aiEventCount: 0,       // ✅ NEW
-      hardcodedEventCount: 0,// ✅ NEW
+      promptTokens: 0,
+      completionTokens: 0,
+      aiEventCount: 0,
+      hardcodedEventCount: 0,
       lastCallTime: null,
       currentModel: defaultModel,
       lastError: null
     }
   };
+
+  // Create party and collect skills
+  state.party = partyMembers.map(char => ({
+    name: char.name,
+    profession: char.profession,
+    health: 100,
+    morale: 75,
+  }));
+  state.skills = [...new Set(partyMembers.flatMap(char => char.skills || []))];
+
+  // Apply bonuses
+  partyMembers.forEach(char => {
+    if (!char.bonus) return;
+    state.money += char.bonus.money || 0;
+    state.supplies += char.bonus.supplies || 0;
+    state.morale += char.bonus.morale || 0;
+    state.health += char.bonus.health || 0;
+    if (char.bonus.partyHealth) {
+      state.party.forEach(p => p.health = Math.min(100, p.health + (char.bonus.partyHealth || 0)));
+    }
+  });
+
+  // Clamp stats
+  state.health = Math.min(100, state.health);
+  state.morale = Math.min(100, state.morale);
+  state.supplies = Math.min(100, state.supplies);
+
+  const logMessage = `Your journey begins with: ${state.party.map(p => `${p.name} the ${p.profession}`).join(', ')}.`;
+  state.gameLog.push({ day: 1, event: "Journey Begins", result: logMessage });
+
+  return state;
 }
 
 /* ------------------------------------------------------------------ */
@@ -228,6 +280,12 @@ function primaryBtn() {
     boxShadow: "0 8px 24px rgba(0,0,0,0.35)"
   };
 }
+
+const UPGRADE_ITEMS = [
+  { id: "vehicle", name: "Reinforced Vehicle", description: "Travel faster and avoid some hazards.", price: 700, effect: { milesPerDay: 10 } },
+  { id: "comms", name: "Encrypted Comms", description: "Get better intel, leading to more favorable outcomes.", price: 500, effect: { morale: 10 } },
+  { id: "supplies", name: "Prepper-Grade Supplies", description: "Start with more and consume less.", price: 600, effect: { supplies: 20 } },
+];
 function chip(bg = "#0b1220") {
   return {
     padding: "6px 10px",
@@ -562,7 +620,8 @@ export default function App() {
           "\n- Morale: " + g.morale + "%" +
           "\n- Supplies: " + g.supplies + "%" +
           "\n- Money: $" + g.money +
-          "\n- Party: " + g.party.map(p => p.name + " (" + p.profession + ", Health: " + p.health + "%, Morale: " + p.morale + "%)").join(", ") +
+          "\n- Party: " + g.party.map(p => p.name + " (" + p.profession + ")").join(", ") +
+          "\n- Skills: " + g.skills.join(', ') +
           "\n- Recent Log: " + g.gameLog.slice(-3).map(l => l.result).join(" | ");
 
         const schema = "Describe the event in JSON format.\n" +
@@ -573,8 +632,9 @@ export default function App() {
           "Rules:\n" +
           "- Be creative and avoid generic events. Create a unique, memorable, satirical scenario.\n" +
           "- Tailor to the current location and its type, with a tone of darkly humorous satire.\n" +
-          "- If location type is \"city\", make the event more supportive or offer ways to earn money.\n" +
-          "- If location type is \"hostile\", make the event more dangerous.\n" +
+          "- Create special choices if the party has relevant skills (e.g., 'hacking', 'negotiation').\n" +
+          "- If location type is \"city\", the event MUST be supportive. This is a Liberal Paradise. Offer rewards like money or supplies, or create positive social interactions.\n" +
+          "- If location type is \"hostile\", the event MUST be dangerous and challenging. These are hostile territories.\n" +
           "- Vary events based on the recent log to avoid repetition.\n" +
           "- OUTPUT ONLY the JSON object. No markdown, no commentary.";
 
@@ -716,6 +776,7 @@ export default function App() {
         const bonus = 100 + Math.floor(Math.random() * 150);
         after.money += bonus;
         toast.details.push(`💰 Arrived at ${newLocation.name} (city bonus: +$${bonus})`);
+        after.showUpgradeShop = true; // Open the upgrade shop
       }
 
       const cascade = maybeCascadingEvent(choice.text || "", after);
@@ -742,6 +803,25 @@ export default function App() {
     }, 6000);
     return () => clearTimeout(t);
   }, [g.lastOutcome]);
+
+  function buyUpgrade(item) {
+    if (g.money < item.price || g.purchasedUpgrades.includes(item.id)) return;
+    setG(prev => {
+      const newState = {
+        ...prev,
+        money: prev.money - item.price,
+        purchasedUpgrades: [...prev.purchasedUpgrades, item.id],
+        showUpgradeShop: false,
+      };
+      // Apply effect
+      newState.milesPerDay += item.effect.milesPerDay || 0;
+      newState.morale = Math.min(100, newState.morale + (item.effect.morale || 0));
+      newState.supplies = Math.min(100, newState.supplies + (item.effect.supplies || 0));
+
+      newState.gameLog = [...prev.gameLog, { day: prev.day, event: "City Upgrade", result: `Purchased: ${item.name}.` }];
+      return newState;
+    });
+  }
 
   function buyItem(item) {
     const price = item.basePrice + Math.floor(Math.random() * 20) - 10;
@@ -1221,6 +1301,40 @@ export default function App() {
             <ul style={{ margin: 0, paddingLeft: 16, color: "#aeb6c7", fontSize: 13, display: "grid", gap: 4 }}>
               {g.lastOutcome.details.map((d, i) => <li key={i}>{d}</li>)}
             </ul>
+          </div>
+        </div>
+      )}
+
+      {/* Upgrade Shop */}
+      {g.showUpgradeShop && (
+        <div style={modalBackdrop()}>
+          <div style={modal({ maxWidth: 900 })}>
+            <h3 style={{ marginTop: 0, color: "#fde68a" }}>City Upgrades Available</h3>
+            <p style={{ color: "#cbd5e1" }}>Welcome to a Liberal Paradise! You can purchase one special upgrade.</p>
+            <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", marginBottom: 12 }}>
+              {UPGRADE_ITEMS.map(item => {
+                const afford = g.money >= item.price;
+                const purchased = g.purchasedUpgrades.includes(item.id);
+                return (
+                  <div key={item.id} style={{ ...card(), opacity: afford && !purchased ? 1 : 0.5 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <strong>{item.name}</strong>
+                      {purchased && <span style={chip("#166534")}>Owned</span>}
+                    </div>
+                    <div style={{ fontSize: 14, color: "#cbd5e1", marginTop: 4 }}>{item.description}</div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
+                      <div style={{ color: "#34d399", fontWeight: 800 }}>${item.price}</div>
+                      <button style={btn("#1c4e80")} onClick={() => buyUpgrade(item)} disabled={!afford || purchased}>
+                        {purchased ? "Owned" : afford ? "Purchase" : "Cannot Afford"}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button style={btn()} onClick={() => setG(p => ({ ...p, showUpgradeShop: false }))}>Continue Journey</button>
+            </div>
           </div>
         </div>
       )}
