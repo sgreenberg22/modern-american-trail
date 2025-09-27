@@ -61,14 +61,14 @@ const FALLBACK_FREE_MODELS = [
 /* ------------------------------------------------------------------ */
 
 const CHARACTER_POOL = [
-  { name: "Alex", profession: "Hacker", bonus: { money: 250 }, skills: ["hacking"] },
-  { name: "Sam", profession: "Journalist", bonus: { morale: 20 }, skills: ["persuasion"] },
-  { name: "Jordan", profession: "Prepper", bonus: { supplies: 25 }, skills: ["survival"] },
-  { name: "Casey", profession: "Mechanic", bonus: { health: 10 }, skills: ["mechanical"] },
-  { name: "Taylor", profession: "Doctor", bonus: { partyHealth: 15 }, skills: ["medical"] },
-  { name: "Morgan", profession: "Lawyer", bonus: { money: 100, morale: 5 }, skills: ["negotiation"] },
-  { name: "Riley", profession: "Ex-Cop", bonus: { supplies: 10, morale: -5 }, skills: ["intimidation"] },
-  { name: "Jessie", profession: "Black Market Smuggler", bonus: { money: 150, supplies: 10 }, skills: ["stealth"] },
+  { name: "Alex", profession: "Hacker", bonus: { money: 250 }, skills: ["hacking"], contribution: "Starts with $250. Can bypass electronic security." },
+  { name: "Sam", profession: "Journalist", bonus: { morale: 20 }, skills: ["persuasion"], contribution: "Boosts starting morale. Can persuade people to help." },
+  { name: "Jordan", profession: "Prepper", bonus: { supplies: 25 }, skills: ["survival"], contribution: "Starts with extra supplies. Expert in wilderness survival." },
+  { name: "Casey", profession: "Mechanic", bonus: { health: 10 }, skills: ["mechanical"], contribution: "Starts with a health boost. Can repair vehicle issues." },
+  { name: "Taylor", profession: "Doctor", bonus: { partyHealth: 15 }, skills: ["medical"], contribution: "Boosts party's starting health. Can treat injuries." },
+  { name: "Morgan", profession: "Lawyer", bonus: { money: 100, morale: 5 }, skills: ["negotiation"], contribution: "Starts with extra money. Excellent at negotiating." },
+  { name: "Riley", profession: "Ex-Cop", bonus: { supplies: 10, morale: -5 }, skills: ["intimidation"], contribution: "Starts with extra supplies. Can intimidate threats." },
+  { name: "Jessie", profession: "Black Market Smuggler", bonus: { money: 150, supplies: 10 }, skills: ["stealth"], contribution: "Starts with extra cash and supplies. Can move unseen." },
 ];
 
 function shuffle(array) {
@@ -205,6 +205,7 @@ function newGameState(defaultModelId) {
     profession: char.profession,
     health: 100,
     morale: 75,
+    contribution: char.contribution,
   }));
   state.skills = [...new Set(partyMembers.flatMap(char => char.skills || []))];
 
@@ -1133,9 +1134,14 @@ export default function App() {
           <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))" }}>
             {g.party.map((m, i) => {
               let icon = "👤";
-              if (m.profession.includes("Tech")) icon = "💻";
-              else if (m.profession.includes("Teacher")) icon = "📚";
-              else if (m.profession.includes("Fact")) icon = "🔍";
+              if (m.profession.includes("Hacker")) icon = "💻";
+              else if (m.profession.includes("Journalist")) icon = "✍️";
+              else if (m.profession.includes("Prepper")) icon = "🎒";
+              else if (m.profession.includes("Mechanic")) icon = "🔧";
+              else if (m.profession.includes("Doctor")) icon = "⚕️";
+              else if (m.profession.includes("Lawyer")) icon = "⚖️";
+              else if (m.profession.includes("Ex-Cop")) icon = "👮";
+              else if (m.profession.includes("Smuggler")) icon = "📦";
               return (
                 <div key={i} style={card()}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -1143,6 +1149,7 @@ export default function App() {
                     <div>{m.health <= 0 ? "💀" : "💚"}</div>
                   </div>
                   <div style={{ color: "#cbd5e1", fontSize: 14, marginTop: 4 }}>{m.profession}</div>
+                  <div style={{ color: "#9aa3b2", fontSize: 12, marginTop: 4, fontStyle: 'italic' }}>{m.contribution}</div>
                   <div style={{ display: "grid", gap: 4, fontSize: 14, marginTop: 6 }}>
                     <Row label="Health:" value={<strong style={{ color: m.health <= 30 ? "#f87171" : "#34d399" }}>{m.health}%</strong>} />
                     <Row label="Morale:" value={<strong style={{ color: m.morale <= 30 ? "#fbbf24" : "#60a5fa" }}>{m.morale}%</strong>} />
