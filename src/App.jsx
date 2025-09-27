@@ -3,6 +3,7 @@ import {
   AlertCircle, Heart, Battery, DollarSign, Users, MapPin, Settings,
   ShoppingCart, Package, Zap, Save, Upload, Map as MapIcon
 } from "lucide-react";
+import JourneyMap from './game/JourneyMap';
 
 /* ------------------------------------------------------------------ */
 /* Constants (Jail balancing & escape)                                 */
@@ -1051,7 +1052,7 @@ export default function App() {
           <div style={card()}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
               <MapPin size={18} color="#fca5a5" />
-              <div style={{ fontWeight: 800, color: "#fde68a" }}>{currentLocation}</div>
+              <div style={{ fontWeight: 800, color: "#fde68a" }}>{currentLocation.name}</div>
               <div style={{ marginLeft: "auto", ...chip("rgba(31,41,55,0.6)") }}>Day {g.day}</div>
             </div>
             <div style={{ fontSize: 14, color: "#aeb6c7", display: "grid", gap: 6 }}>
@@ -1115,7 +1116,7 @@ export default function App() {
                 <div style={{ fontSize: 28, marginBottom: 10 }}>🌅</div>
                 <p style={{ color: "#cbd5e1", marginBottom: 12 }}>
                   Another day dawns in this authoritarian wasteland. What challenges await at{" "}
-                  <span style={{ color: "#fde68a", fontWeight: 700 }}>{currentLocation}</span>?
+                  <span style={{ color: "#fde68a", fontWeight: 700 }}>{currentLocation.name}</span>?
                 </p>
                 <button style={primaryBtn()} onClick={onContinue}>
                   {g.jailed ? "Continue (Jail Day)" : g.stuckDays > 0 ? "Continue (Handle Situation)" : "Continue"}
@@ -1273,23 +1274,18 @@ export default function App() {
       {/* Map */}
       {g.showMap && (
         <div style={modalBackdrop()}>
-          <div style={modal({ maxWidth: 720 })}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={modal({ maxWidth: 900 })}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: '1rem' }}>
               <h3 style={{ marginTop: 0, color: "#93c5fd" }}>Journey Map</h3>
               <button style={btn()} onClick={() => setG(p => ({ ...p, showMap: false }))}>Close</button>
             </div>
-            <div style={card()}>
-              <div style={{ fontWeight: 800, marginBottom: 8, color: "#93c5fd" }}>Journey Progress</div>
-              <div style={{ height: 12, background: "rgba(255,255,255,0.06)", borderRadius: 999, overflow: "hidden", marginBottom: 8 }}>
-                <div style={{ width: `${progressPct}%`, background: "linear-gradient(90deg,#ef4444,#f59e0b,#22c55e)", height: "100%", transition: "width .35s ease" }} />
-              </div>
-              <div style={{ display: "grid", gap: 4, fontSize: 14, color: "#cbd5e1" }}>
-                <Row label="Current Location:" value={<span style={{ color: "#fde68a" }}>{currentLocation}</span>} />
-                <Row label="Distance to Next:" value={<span style={{ color: "#60a5fa" }}>{g.distanceToNext} miles</span>} />
-                <Row label="Total Distance:" value={<span style={{ color: "#34d399" }}>{g.totalDistance} miles</span>} />
-                <Row label="Upcoming:" value={<span>{upcoming.join(" • ") || "—"}</span>} />
-              </div>
-            </div>
+            <JourneyMap
+              locations={g.locations}
+              currentLocationIndex={g.currentLocationIndex}
+              distanceToNext={g.distanceToNext}
+              totalDistance={g.totalDistance}
+              etaDays={etaDays}
+            />
           </div>
         </div>
       )}
