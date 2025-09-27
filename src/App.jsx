@@ -997,14 +997,12 @@ export default function App() {
 
   return (
     <div style={{ minHeight: "100vh", background: gradientBg, backgroundAttachment: "fixed", color: "#fff" }}>
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: 16 }}>
+      <div className="container">
         {/* Header */}
-        <div style={{ textAlign: "center", marginBottom: 18 }}>
-          <h1 style={{ margin: 0, fontSize: 34, color: "#fff", textShadow: "0 4px 18px rgba(0,0,0,0.45)" }}>
-            The Modern American Trail
-          </h1>
-          <div style={{ color: "rgba(255,255,255,0.85)" }}>Escape the Dystopia • Survive the Journey • Find Freedom</div>
-          <div style={{ marginTop: 8, display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+        <div className="hdr">
+          <h1>The Modern American Trail</h1>
+          <div className="subtitle">Escape the Dystopia • Survive the Journey • Find Freedom</div>
+          <div className="header-chips">
             <span style={{ ...chip(g.apiStats.connected ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)"), borderColor: g.apiStats.connected ? "rgba(34,197,94,0.35)" : "rgba(239,68,68,0.35)" }}>
               {g.apiStats.connected ? "🟢 AI Connected" : "🔴 Fallback/Local Logic"}
             </span>
@@ -1022,25 +1020,22 @@ export default function App() {
         </div>
 
         {/* Top actions */}
-        <div style={{ display: "flex", gap: 8, justifyContent: "space-between", marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
-          <div style={{ display: "flex", gap: 8 }}>
+        <div className="top-actions">
+          <div className="top-actions-group">
             <button title="Map" style={btn()} onClick={() => setG(p => ({ ...p, showMap: true }))}><MapIcon size={18} /></button>
             <button title="Black Market" style={btn("#1d3b2d")} onClick={() => setG(p => ({ ...p, showShop: true }))}><ShoppingCart size={18} /></button>
             <button title="Settings" style={btn("#1c2d4a")} onClick={() => setG(p => ({ ...p, showSettings: true }))}><Settings size={18} /></button>
             <button title="New Game" style={btn("#3b1d0c")} onClick={() => setG(newGameState(models.find(m => m.healthy)?.id || models[0]?.id))}><Upload size={18} /></button>
-            {/* Save/Load */}
             <button title="Export Save" style={btn("#2a1f4a")} onClick={exportSave}><Save size={18} /></button>
             <button title="Save (Local)" style={btn("#20314d")} onClick={() => saveLocal(g)}>Save Local</button>
             <button title="Load (Local)" style={btn("#20314d")} onClick={() => { const s = loadLocal(); if (s) setG(s); }}>Load Local</button>
             <button title="Import Save (JSON)" style={btn("#20314d")} onClick={() => fileInputRef.current?.click()}>Import</button>
             <input ref={fileInputRef} type="file" accept="application/json" style={{ display: "none" }} onChange={e => importSaveFromFile(e.target.files?.[0])} />
           </div>
-
-          {/* ❌ Removed the TOP Continue button on purpose */}
         </div>
 
         {/* Stats */}
-        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", marginBottom: 16 }}>
+        <div className="stats-grid">
           <Stat label="Health" value={g.health} icon={Heart} color="#ef4444" />
           <Stat label="Morale" value={g.morale} icon={Battery} color="#3b82f6" />
           <Stat label="Supplies" value={g.supplies} icon={AlertCircle} color="#f59e0b" />
@@ -1048,7 +1043,7 @@ export default function App() {
         </div>
 
         {/* Location & Progress */}
-        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", marginBottom: 16 }}>
+        <div className="location-grid">
           <div style={card()}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
               <MapPin size={18} color="#fca5a5" />
@@ -1131,7 +1126,7 @@ export default function App() {
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
             <Users size={18} color="#93c5fd" /><div style={{ fontWeight: 700, color: "#bfdbfe" }}>Your Party</div>
           </div>
-          <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))" }}>
+          <div className="party-grid">
             {g.party.map((m, i) => {
               let icon = "👤";
               if (m.profession.includes("Hacker")) icon = "💻";
