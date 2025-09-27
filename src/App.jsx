@@ -3,6 +3,7 @@ import {
   AlertCircle, Heart, Battery, DollarSign, Users, MapPin, Settings,
   ShoppingCart, Package, Zap, Save, Upload, Map as MapIcon
 } from "lucide-react";
+import JourneyMap from './game/JourneyMap';
 
 /* ------------------------------------------------------------------ */
 /* Constants (Jail balancing & escape)                                 */
@@ -316,6 +317,15 @@ export default function App() {
   const progressPct = Math.round((g.currentLocationIndex / (g.locations.length - 1)) * 100);
   const isWin = currentLocation.name === "Safe Haven of Vermont" && g.health > 0;
   const isGameOver = g.health <= 0 || currentLocation.name === "Safe Haven of Vermont" || g.party.every(p => p.health <= 0);
+
+  const avgMilesPerDay = useMemo(() => {
+    const base = 25 + 7.5; // Average of 25 + random(15)
+    const healthMod = Math.floor(g.health / 20);
+    const suppliesMod = Math.floor(g.supplies / 25);
+    return Math.max(1, base + healthMod + suppliesMod + g.milesPerDay);
+  }, [g.health, g.supplies, g.milesPerDay]);
+
+  const etaDays = g.distanceToNext > 0 ? Math.ceil(g.distanceToNext / avgMilesPerDay) : 0;
 
   useEffect(() => {
     (async () => {
@@ -1177,23 +1187,18 @@ export default function App() {
       {/* Map */}
       {g.showMap && (
         <div style={modalBackdrop()}>
-          <div style={modal({ maxWidth: 720 })}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={modal({ maxWidth: 900 })}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: '1rem' }}>
               <h3 style={{ marginTop: 0, color: "#93c5fd" }}>Journey Map</h3>
               <button style={btn()} onClick={() => setG(p => ({ ...p, showMap: false }))}>Close</button>
             </div>
-            <div style={card()}>
-              <div style={{ fontWeight: 800, marginBottom: 8, color: "#93c5fd" }}>Journey Progress</div>
-              <div style={{ height: 12, background: "rgba(255,255,255,0.06)", borderRadius: 999, overflow: "hidden", marginBottom: 8 }}>
-                <div style={{ width: `${progressPct}%`, background: "linear-gradient(90deg,#ef4444,#f59e0b,#22c55e)", height: "100%", transition: "width .35s ease" }} />
-              </div>
-              <div style={{ display: "grid", gap: 4, fontSize: 14, color: "#cbd5e1" }}>
-                <Row label="Current Location:" value={<span style={{ color: "#fde68a" }}>{currentLocation.name}</span>} />
-                <Row label="Distance to Next:" value={<span style={{ color: "#60a5fa" }}>{g.distanceToNext} miles</span>} />
-                <Row label="Total Distance:" value={<span style={{ color: "#34d399" }}>{g.totalDistance} miles</span>} />
-                <Row label="Upcoming:" value={<span>{upcoming.map(l => l.name).join(" • ") || "—"}</span>} />
-              </div>
-            </div>
+            <JourneyMap
+              locations={g.locations}
+              currentLocationIndex={g.currentLocationIndex}
+              distanceToNext={g.distanceToNext}
+              totalDistance={g.totalDistance}
+              etaDays={etaDays}
+            />
           </div>
         </div>
       )}
