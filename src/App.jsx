@@ -60,21 +60,21 @@ const FALLBACK_FREE_MODELS = [
 /* ------------------------------------------------------------------ */
 function generateLocations() {
   const baseLocations = [
-    "Liberal Enclave of Portland",
-    "The Censored City (formerly Seattle)",
-    "Book Burning Fields of Idaho",
-    "Surveillance State of Montana",
-    "The Great Wall of North Dakota",
-    "Ministry of Truth (Minnesota)",
-    "Re-education Camps of Wisconsin",
-    "Thought Police Headquarters (Illinois)",
-    "Corporate Theocracy of Indiana",
-    "Bible Belt Checkpoint (Kentucky)",
-    "Coal Rolling Capital (West Virginia)",
-    "Confederate Memorial Highway (Virginia)",
-    "Freedom™ Processing Center (Maryland)",
-    "The Last Stand (Pennsylvania)",
-    "Safe Haven of Vermont"
+    { name: "Liberal Enclave of Portland", type: "city" },
+    { name: "The Censored City (formerly Seattle)", type: "city" },
+    { name: "Book Burning Fields of Idaho", type: "city" },
+    { name: "Surveillance State of Montana", type: "city" },
+    { name: "The Great Wall of North Dakota", type: "city" },
+    { name: "Ministry of Truth (Minnesota)", type: "city" },
+    { name: "Re-education Camps of Wisconsin", type: "city" },
+    { name: "Thought Police Headquarters (Illinois)", type: "city" },
+    { name: "Corporate Theocracy of Indiana", type: "city" },
+    { name: "Bible Belt Checkpoint (Kentucky)", type: "city" },
+    { name: "Coal Rolling Capital (West Virginia)", type: "city" },
+    { name: "Confederate Memorial Highway (Virginia)", type: "city" },
+    { name: "Freedom™ Processing Center (Maryland)", type: "city" },
+    { name: "The Last Stand (Pennsylvania)", type: "city" },
+    { name: "Safe Haven of Vermont", type: "city" }
   ];
 
   const suffixes = [
@@ -87,10 +87,10 @@ function generateLocations() {
   const out = [];
   for (let i = 0; i < baseLocations.length - 1; i++) {
     out.push(baseLocations[i]);
-    const n = 2 + Math.floor(Math.random() * 3);
+    const n = 1 + Math.floor(Math.random() * 2); // ✅ REDUCED from 2-4 to 1-2
     for (let j = 0; j < n; j++) {
       const s = suffixes[Math.floor(Math.random() * suffixes.length)];
-      out.push(`${s} ${String.fromCharCode(65 + i)}-${j + 1}`);
+      out.push({ name: `${s} ${String.fromCharCode(65 + i)}-${j + 1}`, type: "hostile" });
     }
   }
   out.push(baseLocations[baseLocations.length - 1]);
@@ -314,8 +314,8 @@ export default function App() {
 
   const currentLocation = g.locations[g.currentLocationIndex];
   const progressPct = Math.round((g.currentLocationIndex / (g.locations.length - 1)) * 100);
-  const isWin = currentLocation === "Safe Haven of Vermont" && g.health > 0;
-  const isGameOver = g.health <= 0 || currentLocation === "Safe Haven of Vermont" || g.party.every(p => p.health <= 0);
+  const isWin = currentLocation.name === "Safe Haven of Vermont" && g.health > 0;
+  const isGameOver = g.health <= 0 || currentLocation.name === "Safe Haven of Vermont" || g.party.every(p => p.health <= 0);
 
   useEffect(() => {
     (async () => {
@@ -527,142 +527,143 @@ export default function App() {
     return lines;
   }
 
+  // ✅ NEW: AI event generation with auto-fallback to other healthy models
   async function generateEvent() {
     setG(prev => ({ ...prev, isLoading: true, lastError: null }));
-    try {
-      const stateForPrompt = {
-        location: currentLocation,
-        day: g.day,
-        health: g.health,
-        morale: g.morale,
-        supplies: g.supplies,
-        money: g.money,
-        partyMembers: g.party.map(p => `${p.name} (${p.profession}, Health: ${p.health}%, Morale: ${p.morale}%)`).join(", "),
-        distanceToNext: g.distanceToNext,
-        totalDistance: g.totalDistance,
-        difficulty: g.difficulty,
-        stuckDays: g.stuckDays,
-        jailed: g.jailed
-      };
 
-      const schema = `Use ONLY this JSON shape:
-{
-  "title": "string",
-  "description": "2-3 sentences of satirical narrative",
-  "choices": [
-    {
-      "text": "string",
-      "effect": {
-        "health": -20..20,
-        "morale": -25..25,
-        "supplies": -50..50,
-        "money": -500..500,
-        "partyHealth": -20..20,
-        "partyMorale": -20..20,
-        "miles": 0..100,
-        "milesBack": 0..100,
-        "stuckDays": 0..3,
-        "sendToJail": true|false,
-        "partyMemberLoss": true|false,
-        "endGame": "win"|"lose"|null,
-        "message": "short outcome line"
+    const healthyModels = models.filter(m => m.healthy);
+    if (healthyModels.length === 0) {
+      useFallbackEvent("No healthy models available.");
+      return;
+    }
+
+    const orderedModels = [
+      ...healthyModels.filter(m => m.id === g.selectedModel),
+      ...healthyModels.filter(m => m.id !== g.selectedModel)
+    ];
+
+    let lastError = null;
+
+    for (const model of orderedModels) {
+      try {
+        const stateForPrompt = "\n- Location: " + currentLocation.name + " (Type: " + currentLocation.type + ")" +
+          "\n- Day: " + g.day +
+          "\n- Health: " + g.health + "%" +
+          "\n- Morale: " + g.morale + "%" +
+          "\n- Supplies: " + g.supplies + "%" +
+          "\n- Money: $" + g.money +
+          "\n- Party: " + g.party.map(p => p.name + " (" + p.profession + ", Health: " + p.health + "%, Morale: " + p.morale + "%)").join(", ") +
+          "\n- Recent Log: " + g.gameLog.slice(-3).map(l => l.result).join(" | ");
+
+        const schema = "Describe the event in JSON format.\n" +
+          "- The root object must have \"title\" (string), \"description\" (string), and \"choices\" (array of objects).\n" +
+          "- Each choice object must have \"text\" (string) and \"effect\" (object).\n" +
+          "- The \"effect\" object contains outcomes like \"health\", \"morale\", \"money\", \"miles\", etc.\n" +
+          "- Example effect keys: health, morale, supplies, money, partyHealth, partyMorale, miles, milesBack, stuckDays, sendToJail, partyMemberLoss, endGame, message.\n\n" +
+          "Rules:\n" +
+          "- Be creative and avoid generic events. Create a unique, memorable, satirical scenario.\n" +
+          "- Tailor to the current location and its type, with a tone of darkly humorous satire.\n" +
+          "- If location type is \"city\", make the event more supportive or offer ways to earn money.\n" +
+          "- If location type is \"hostile\", make the event more dangerous.\n" +
+          "- Vary events based on the recent log to avoid repetition.\n" +
+          "- OUTPUT ONLY the JSON object. No markdown, no commentary.";
+
+        const prompt = "You are generating an impactful event for a dystopian Oregon Trail-style satire game.\n" +
+          "Current game state:\n" +
+          stateForPrompt + "\n" +
+          schema;
+
+        const data = await chat({
+          model: model.id,
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: 900,
+          temperature: 0.8
+        });
+
+        const text = data?.choices?.[0]?.message?.content ?? "";
+        const eventData = parseJSONFromText(text);
+        if (!eventData?.title || !eventData?.description || !Array.isArray(eventData?.choices)) {
+          throw new Error("Event missing required fields");
+        }
+
+        eventData.choices = eventData.choices.map(c => ({
+          text: String(c?.text || "Choose"),
+          effect: sanitizeEffect(c?.effect || {})
+        }));
+
+        setG(prev => ({
+          ...prev,
+          currentEvent: eventData,
+          isLoading: false,
+          selectedModel: model.id,
+          apiStats: {
+            ...prev.apiStats,
+            connected: true,
+            totalCalls: prev.apiStats.totalCalls + 1,
+            successfulCalls: prev.apiStats.successfulCalls + 1,
+            aiEventCount: prev.apiStats.aiEventCount + 1,
+            totalTokensUsed: prev.apiStats.totalTokensUsed + (data?.usage?.total_tokens || 0),
+            promptTokens: prev.apiStats.promptTokens + (data?.usage?.prompt_tokens || 0),
+            completionTokens: prev.apiStats.completionTokens + (data?.usage?.completion_tokens || 0),
+            lastCallTime: new Date().toLocaleTimeString(),
+            currentModel: model.id,
+            lastError: null
+          }
+        }));
+        return;
+      } catch (e) {
+        lastError = "Model " + model.id + " failed: " + e.message + ".";
+        setG(prev => ({ ...prev, apiStats: { ...prev.apiStats, failedCalls: prev.apiStats.failedCalls + 1 } }));
       }
     }
-  ]
-}
-Rules:
-- At least ONE of: miles, milesBack, stuckDays, sendToJail, partyHealth/partyMorale, or endGame MUST be impactful (>0 or true).
-- Keep numbers proportional to the current state (avoid lethal spikes if health/morale already low).
-- Tailor to location "${currentLocation}" and tone: darkly humorous satire of authoritarian conservatism.
-- OUTPUT ONLY JSON. No markdown.`;
 
-      const prompt = `You are generating an impactful event for a dystopian Oregon Trail-style satire game, "The Modern American Trail" in ${new Date().getFullYear() + 1}.
-Current game state: ${JSON.stringify(stateForPrompt)}
-${schema}`;
+    useFallbackEvent(lastError || "All AI models failed.");
+  }
 
-      const data = await chat({
-        model: g.selectedModel,
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 900,
-        temperature: 0.8
-      });
-
-      const text = data?.choices?.[0]?.message?.content ?? "";
-      const eventData = parseJSONFromText(text);
-      if (!eventData?.title || !eventData?.description || !Array.isArray(eventData?.choices)) {
-        throw new Error("Event missing required fields");
+  function useFallbackEvent(errorMessage) {
+    const fallbackEvents = [
+      {
+        title: "Mandatory Patriotism Test",
+        description: "At " + currentLocation.name + ", officials demand you prove your loyalty by reciting the pledge to a flag made entirely of corporate logos.",
+        choices: [
+          { text: "Recite with exaggerated enthusiasm", effect: { health: 0, morale: -10, partyMorale: -5, miles: 5, message: "You pass the test but feel your soul shrinking." } },
+          { text: "Slip them a bribe", effect: { health: -2, morale: 5, money: -80, miles: 10, message: "Money talks, even in a dystopia." } },
+          { text: "Refuse and cite rights", effect: { health: -10, morale: 10, money: -50, milesBack: 20, message: "Principles are expensive." } }
+        ]
+      },
+      {
+        title: "Corporate Checkpoint Inspection",
+        description: "Amazon-Walmart Security Forces search for 'anti-corporate sentiment materials.'",
+        choices: [
+          { text: "Submit and praise the megacorps", effect: { supplies: -15, morale: -10, partyMorale: -8, miles: 0, message: "They confiscate 'suspicious' items but let you pass." } },
+          { text: "Buy overpriced merch to appease", effect: { money: -150, morale: -3, miles: 10, message: "Capitalism miraculously fixes the problem." } },
+          { text: "Challenge their authority", effect: { health: -20, money: -200, milesBack: 35, partyHealth: -10, message: "Corporate justice is swift and expensive." } }
+        ]
       }
+    ].map(evt => ({ ...evt, choices: evt.choices.map(c => ({ ...c, effect: sanitizeEffect(c.effect) })) }));
 
-      eventData.choices = eventData.choices.map(c => ({
-        text: String(c?.text || "Choose"),
-        effect: sanitizeEffect(c?.effect || {})
-      }));
-
-      setG(prev => ({
-        ...prev,
-        currentEvent: eventData,
-        isLoading: false,
-        apiStats: {
-          ...prev.apiStats,
-          connected: true,
-          totalCalls: prev.apiStats.totalCalls + 1,
-          successfulCalls: prev.apiStats.successfulCalls + 1,
-          aiEventCount: prev.apiStats.aiEventCount + 1, // ✅ track AI events
-          totalTokensUsed: prev.apiStats.totalTokensUsed + (data?.usage?.total_tokens || 0),
-          promptTokens: prev.apiStats.promptTokens + (data?.usage?.prompt_tokens || 0),
-          completionTokens: prev.apiStats.completionTokens + (data?.usage?.completion_tokens || 0),
-          lastCallTime: new Date().toLocaleTimeString()
-        }
-      }));
-    } catch (e) {
-      const fallbackEvents = [
-        {
-          title: "Mandatory Patriotism Test",
-          description: `At ${currentLocation}, officials demand you prove your loyalty by reciting the pledge to a flag made entirely of corporate logos.`,
-          choices: [
-            { text: "Recite with exaggerated enthusiasm", effect: { health: 0, morale: -10, partyMorale: -5, miles: 5, message: "You pass the test but feel your soul shrinking." } },
-            { text: "Slip them a bribe", effect: { health: -2, morale: 5, money: -80, miles: 10, message: "Money talks, even in a dystopia." } },
-            { text: "Refuse and cite rights", effect: { health: -10, morale: 10, money: -50, milesBack: 20, message: "Principles are expensive." } }
-          ]
-        },
-        {
-          title: "Corporate Checkpoint Inspection",
-          description: "Amazon-Walmart Security Forces search for 'anti-corporate sentiment materials.'",
-          choices: [
-            { text: "Submit and praise the megacorps", effect: { supplies: -15, morale: -10, partyMorale: -8, miles: 0, message: "They confiscate 'suspicious' items but let you pass." } },
-            { text: "Buy overpriced merch to appease", effect: { money: -150, morale: -3, miles: 10, message: "Capitalism miraculously fixes the problem." } },
-            { text: "Challenge their authority", effect: { health: -20, money: -200, milesBack: 35, partyHealth: -10, message: "Corporate justice is swift and expensive." } }
-          ]
-        }
-      ].map(evt => ({ ...evt, choices: evt.choices.map(c => ({ ...c, effect: sanitizeEffect(c.effect) })) }));
-
-      setG(prev => ({
-        ...prev,
-        currentEvent: fallbackEvents[Math.floor(Math.random() * fallbackEvents.length)],
-        isLoading: false,
-        lastError: `AI Error: ${e.message}. Using fallback event.`,
-        apiStats: {
-          ...prev.apiStats,
-          connected: false,
-          totalCalls: prev.apiStats.totalCalls + 1,
-          failedCalls: prev.apiStats.failedCalls + 1,
-          hardcodedEventCount: prev.apiStats.hardcodedEventCount + 1, // ✅ track fallback events
-          lastCallTime: new Date().toLocaleTimeString(),
-          lastError: e.message
-        }
-      }));
-    }
+    setG(prev => ({
+      ...prev,
+      currentEvent: fallbackEvents[Math.floor(Math.random() * fallbackEvents.length)],
+      isLoading: false,
+      lastError: "AI Error: " + errorMessage + ". Using fallback event.",
+      apiStats: {
+        ...prev.apiStats,
+        connected: false,
+        hardcodedEventCount: prev.apiStats.hardcodedEventCount + 1,
+        lastCallTime: new Date().toLocaleTimeString(),
+        lastError: errorMessage
+      }
+    }));
   }
 
   function handleChoice(choice) {
     const eff0 = sanitizeEffect(choice.effect || {});
     setG(prev => {
       const eff = { ...eff0 };
-      // ✅ Guard: no jail in the first few days
       if (eff.sendToJail && prev.day <= EARLY_JAIL_GUARD_DAYS) eff.sendToJail = false;
 
       const wasStuck = prev.stuckDays > 0;
-
       const move = applyMovementAndStatus(prev, eff);
       const movedIndexDelta = move.currentLocationIndex - prev.currentLocationIndex;
 
@@ -683,16 +684,10 @@ ${schema}`;
         supplies: Math.max(0, Math.min(100, prev.supplies + (eff.supplies || 0))),
         money: Math.max(0, prev.money + (eff.money || 0)),
         party,
-        currentLocationIndex: move.currentLocationIndex,
-        distanceToNext: move.distanceToNext,
-        totalDistance: move.totalDistance,
-        stuckDays: move.stuckDays,
-        jailed: move.jailed,
-        daysInJail: move.daysInJail,
+        ...move,
         currentEvent: null
       };
 
-      // If we were stuck (non-jail) and the effect didn't add stuck days, tick down one
       if (wasStuck && !after.jailed && eff.stuckDays === 0) {
         after.stuckDays = Math.max(0, after.stuckDays - 1);
       }
@@ -704,6 +699,14 @@ ${schema}`;
         details,
         severe: eff.endGame === "lose" || eff.sendToJail || after.health <= 0
       };
+
+      // ✅ NEW: Checkpoint bonus for reaching a city
+      const newLocation = after.locations[after.currentLocationIndex];
+      if (movedIndexDelta > 0 && newLocation.type === "city") {
+        const bonus = 100 + Math.floor(Math.random() * 150);
+        after.money += bonus;
+        toast.details.push(`💰 Arrived at ${newLocation.name} (city bonus: +$${bonus})`);
+      }
 
       const cascade = maybeCascadingEvent(choice.text || "", after);
       if (cascade) {
@@ -752,7 +755,7 @@ ${schema}`;
   }
 
   function advanceDay() {
-    const base = 15 + Math.floor(Math.random() * 10);
+    const base = 25 + Math.floor(Math.random() * 15); // ✅ INCREASED base speed
     const healthMod = Math.floor(g.health / 20);
     const suppliesMod = Math.floor(g.supplies / 25);
     const miles = base + healthMod + suppliesMod + g.milesPerDay;
@@ -958,7 +961,7 @@ ${schema}`;
           <div style={card()}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
               <MapPin size={18} color="#fca5a5" />
-              <div style={{ fontWeight: 800, color: "#fde68a" }}>{currentLocation}</div>
+              <div style={{ fontWeight: 800, color: "#fde68a" }}>{currentLocation.name}</div>
               <div style={{ marginLeft: "auto", ...chip("rgba(31,41,55,0.6)") }}>Day {g.day}</div>
             </div>
             <div style={{ fontSize: 14, color: "#aeb6c7", display: "grid", gap: 6 }}>
@@ -1022,7 +1025,7 @@ ${schema}`;
                 <div style={{ fontSize: 28, marginBottom: 10 }}>🌅</div>
                 <p style={{ color: "#cbd5e1", marginBottom: 12 }}>
                   Another day dawns in this authoritarian wasteland. What challenges await at{" "}
-                  <span style={{ color: "#fde68a", fontWeight: 700 }}>{currentLocation}</span>?
+                  <span style={{ color: "#fde68a", fontWeight: 700 }}>{currentLocation.name}</span>?
                 </p>
                 <button style={primaryBtn()} onClick={onContinue}>
                   {g.jailed ? "Continue (Jail Day)" : g.stuckDays > 0 ? "Continue (Handle Situation)" : "Continue"}
@@ -1185,10 +1188,10 @@ ${schema}`;
                 <div style={{ width: `${progressPct}%`, background: "linear-gradient(90deg,#ef4444,#f59e0b,#22c55e)", height: "100%", transition: "width .35s ease" }} />
               </div>
               <div style={{ display: "grid", gap: 4, fontSize: 14, color: "#cbd5e1" }}>
-                <Row label="Current Location:" value={<span style={{ color: "#fde68a" }}>{currentLocation}</span>} />
+                <Row label="Current Location:" value={<span style={{ color: "#fde68a" }}>{currentLocation.name}</span>} />
                 <Row label="Distance to Next:" value={<span style={{ color: "#60a5fa" }}>{g.distanceToNext} miles</span>} />
                 <Row label="Total Distance:" value={<span style={{ color: "#34d399" }}>{g.totalDistance} miles</span>} />
-                <Row label="Upcoming:" value={<span>{upcoming.join(" • ") || "—"}</span>} />
+                <Row label="Upcoming:" value={<span>{upcoming.map(l => l.name).join(" • ") || "—"}</span>} />
               </div>
             </div>
           </div>
