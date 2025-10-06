@@ -606,14 +606,11 @@ export default function App() {
       return;
     }
 
-    const orderedModels = [
-      ...healthyModels.filter(m => m.id === g.selectedModel),
-      ...healthyModels.filter(m => m.id !== g.selectedModel)
-    ];
+    const shuffledModels = shuffle([...healthyModels]);
 
     let lastError = null;
 
-    for (const model of orderedModels) {
+    for (const model of shuffledModels) {
       try {
         const stateForPrompt = "\n- Location: " + currentLocation.name + " (Type: " + currentLocation.type + ")" +
           "\n- Day: " + g.day +
