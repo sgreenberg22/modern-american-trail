@@ -7,22 +7,27 @@ export async function onRequestGet(context) {
   const apiKey = env.OPENROUTER_API_KEY || "";
   const referer = new URL(request.url).origin || "https://pages.dev";
 
-  // Curated free models that most reliably have free capacity
-  const candidates = [
-    { id: "deepseek/deepseek-r1-0528:free", name: "DeepSeek R1 0528 (Free)" },
-    { id: "deepseek/deepseek-chat-v3-0324:free", name: "DeepSeek Chat v3 0324 (Free)" },
-    { id: "tngtech/deepseek-r1t-chimera:free", name: "DeepSeek R1T Chimera (Free)" },
-    { id: "deepseek/deepseek-r1:free", name: "DeepSeek R1 (Free)" },
-    { id: "google/gemini-2.0-flash-exp:free", name: "Gemini 2.0 Flash Exp (Free)" },
-    { id: "meta-llama/llama-3.3-70b-instruct:free", name: "Llama 3.3 70B Instruct (Free)" },
-    { id: "cognitivecomputations/dolphin-mistral-24b-venice-edition:free", name: "Dolphin Mistral 24B Venice (Free)" },
-    { id: "mistralai/mistral-small-3.2-24b-instruct:free", name: "Mistral Small 3.2 24B Instruct (Free)" },
-    { id: "openai/gpt-oss-20b:free", name: "GPT-OSS 20B (Free)" },
-    { id: "deepseek/deepseek-r1-distill-llama-70b:free", name: "DeepSeek R1 Distill Llama 70B (Free)" },
-    { id: "meta-llama/llama-4-maverick:free", name: "Llama 4 Maverick (Free)" },
-    { id: "meta-llama/llama-4-scout:free", name: "Llama 4 Scout (Free)" },
-    { id: "meta-llama/llama-3.3-8b-instruct:free", name: "Llama 3.3 8B Instruct (Free)" }
-  ];
+  async function getFreeModels() {
+    try {
+      const response = await fetch("https://openrouter.ai/api/v1/models");
+      if (!response.ok) return [];
+
+      const { data } = await response.json();
+      if (!Array.isArray(data)) return [];
+
+      return data
+        .filter(model => model.id.endsWith(":free"))
+        .map(model => ({
+          id: model.id,
+          name: model.name.replace(/:free/i, " (Free)").trim()
+        }));
+    } catch (error) {
+      console.error("Failed to fetch models from OpenRouter:", error);
+      return [];
+    }
+  }
+
+  const candidates = await getFreeModels();
 
   // Probe a model with a tiny completion; returns { ok, latency }
   async function probe(modelId) {

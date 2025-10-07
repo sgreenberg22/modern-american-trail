@@ -3,3 +3,5 @@ dist
 .DS_Store
 npm_output.log
 jules-scratch/
+npm.log
+package-lock.json
