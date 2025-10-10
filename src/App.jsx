@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle, Heart, Battery, DollarSign, Users, MapPin, Settings,
-  ShoppingCart, Package, Zap, Save, Upload, Map as MapIcon
+  ShoppingCart, Package, Zap, Save, Upload, Map as MapIcon, Rewind, FastForward
 } from "lucide-react";
 import JourneyMap from './game/JourneyMap';
+import { useHistoryState } from './hooks/useHistoryState';
 
 /* ------------------------------------------------------------------ */
 /* Constants (Jail balancing & escape)                                 */
@@ -16,17 +17,32 @@ const JAIL_ESCAPE_BASE = 0.35;   // ✅ Base escape chance on first jail day
 /* Server helpers (Cloudflare Pages Functions)                        */
 /* ------------------------------------------------------------------ */
 async function chat({ model, messages, max_tokens = 700, temperature = 0.7 }) {
-  const res = await fetch("/api/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model, messages, max_tokens, temperature })
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    const msg = data?.error?.message || data?.error || res.statusText;
-    throw new Error(msg || "OpenRouter error");
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model, messages, max_tokens, temperature }),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    const data = await res.json();
+    if (!res.ok) {
+      const msg = data?.error?.message || data?.error || res.statusText;
+      throw new Error(msg || "OpenRouter error");
+    }
+    return data;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error('API request timed out.');
+    }
+    // Re-throw other errors
+    throw error;
   }
-  return data;
 }
 
 function parseJSONFromText(text) {
@@ -370,12 +386,24 @@ export default function App() {
     return healthy?.id || FALLBACK_FREE_MODELS[0].id;
   }, [models]);
 
-  const [g, setG] = useState(() => newGameState(initialModelId));
+  const {
+    state: g,
+    pushState,
+    updateCurrentState,
+    resetState,
+    goBack,
+    goForward,
+    canGoBack,
+    canGoForward,
+    historyLength,
+    currentIndex
+  } = useHistoryState(() => newGameState(initialModelId));
 
   const currentLocation = g.locations[g.currentLocationIndex];
   const progressPct = Math.round((g.currentLocationIndex / (g.locations.length - 1)) * 100);
   const isWin = currentLocation.name === "Safe Haven of Vermont" && g.health > 0;
   const isGameOver = g.health <= 0 || currentLocation.name === "Safe Haven of Vermont" || g.party.every(p => p.health <= 0);
+  const isHistoryVisible = canGoBack || canGoForward;
 
   const avgMilesPerDay = useMemo(() => {
     const base = 25 + 7.5; // Average of 25 + random(15)
@@ -397,7 +425,7 @@ export default function App() {
           const healthy = list.filter(m => m.healthy);
           const next = healthy.length > 0 ? healthy : list;
           setModels(next);
-          setG(prev => {
+          updateCurrentState(prev => {
             const has = next.some(m => m.id === prev.selectedModel);
             const nextId = has ? prev.selectedModel : (next.find(m => m.healthy)?.id || next[0].id);
             return { ...prev, selectedModel: nextId, apiStats: { ...prev.apiStats, currentModel: nextId } };
@@ -412,7 +440,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    setG(prev => {
+    updateCurrentState(prev => {
       if (!prev.selectedModel) {
         const healthy = models.find(m => m.healthy) || models[0];
         const id = healthy?.id || FALLBACK_FREE_MODELS[0].id;
@@ -424,7 +452,7 @@ export default function App() {
   }, [models]);
 
   async function testAPIConnection() {
-    setG(prev => ({ ...prev, apiStats: { ...prev.apiStats, lastError: "Testing connection..." } }));
+    updateCurrentState(prev => ({ ...prev, apiStats: { ...prev.apiStats, lastError: "Testing connection..." } }));
     try {
       const data = await chat({
         model: g.selectedModel,
@@ -434,7 +462,7 @@ export default function App() {
       });
       const text = data?.choices?.[0]?.message?.content?.trim() || "";
       const ok = /^OK$/i.test(text);
-      setG(prev => ({
+      updateCurrentState(prev => ({
         ...prev,
         apiStats: {
           ...prev.apiStats,
@@ -453,7 +481,7 @@ export default function App() {
     } catch (e) {
       const msg = e?.message || "Connection failed";
       const noEndpoints = /no endpoints found|no endpoint/i.test(msg);
-      setG(prev => {
+      updateCurrentState(prev => {
         let nextModel = prev.selectedModel;
         const idx = models.findIndex(m => m.id === prev.selectedModel);
         if (noEndpoints && models.length > 1) {
@@ -598,7 +626,7 @@ export default function App() {
 
   // ✅ NEW: AI event generation with auto-fallback to other healthy models
   async function generateEvent() {
-    setG(prev => ({ ...prev, isLoading: true, lastError: null }));
+    pushState(prev => ({ ...prev, isLoading: true, lastError: null }));
 
     const healthyModels = models.filter(m => m.healthy);
     if (healthyModels.length === 0) {
@@ -659,7 +687,7 @@ export default function App() {
           effect: sanitizeEffect(c?.effect || {})
         }));
 
-        setG(prev => ({
+        updateCurrentState(prev => ({
           ...prev,
           currentEvent: eventData,
           isLoading: false,
@@ -681,7 +709,7 @@ export default function App() {
         return;
       } catch (e) {
         lastError = "Model " + model.id + " failed: " + e.message + ".";
-        setG(prev => ({ ...prev, apiStats: { ...prev.apiStats, failedCalls: prev.apiStats.failedCalls + 1 } }));
+        updateCurrentState(prev => ({ ...prev, apiStats: { ...prev.apiStats, failedCalls: prev.apiStats.failedCalls + 1 } }));
       }
     }
 
@@ -710,7 +738,7 @@ export default function App() {
       }
     ].map(evt => ({ ...evt, choices: evt.choices.map(c => ({ ...c, effect: sanitizeEffect(c.effect) })) }));
 
-    setG(prev => ({
+    updateCurrentState(prev => ({
       ...prev,
       currentEvent: fallbackEvents[Math.floor(Math.random() * fallbackEvents.length)],
       isLoading: false,
@@ -727,7 +755,7 @@ export default function App() {
 
   function handleChoice(choice) {
     const eff0 = sanitizeEffect(choice.effect || {});
-    setG(prev => {
+    pushState(prev => {
       const eff = { ...eff0 };
       if (eff.sendToJail && prev.day <= EARLY_JAIL_GUARD_DAYS) eff.sendToJail = false;
 
@@ -797,14 +825,14 @@ export default function App() {
   useEffect(() => {
     if (!g.lastOutcome) return;
     const t = setTimeout(() => {
-      setG(p => ({ ...p, lastOutcome: null }));
+      updateCurrentState(p => ({ ...p, lastOutcome: null }));
     }, 6000);
     return () => clearTimeout(t);
   }, [g.lastOutcome]);
 
   function buyUpgrade(item) {
     if (g.money < item.price || g.purchasedUpgrades.includes(item.id)) return;
-    setG(prev => {
+    pushState(prev => {
       const newState = {
         ...prev,
         money: prev.money - item.price,
@@ -824,7 +852,7 @@ export default function App() {
   function buyItem(item) {
     const price = item.basePrice + Math.floor(Math.random() * 20) - 10;
     if (g.money < price) return;
-    setG(prev => {
+    pushState(prev => {
       const party = prev.party.map(m => ({
         ...m,
         health: Math.min(100, m.health + (item.effect.partyHealth || 0)),
@@ -848,7 +876,7 @@ export default function App() {
     const suppliesMod = Math.floor(g.supplies / 25);
     const miles = base + healthMod + suppliesMod + g.milesPerDay;
 
-    setG(prev => {
+    pushState(prev => {
       let { currentLocationIndex, distanceToNext } = prev;
       let newDistanceToNext = Math.max(0, prev.distanceToNext - miles);
       let newIndex = currentLocationIndex;
@@ -882,16 +910,13 @@ export default function App() {
     });
 
     setTimeout(() => {
-      setG(curr => {
-        if (!curr.currentEvent) generateEvent();
-        return curr;
-      });
+      generateEvent();
     }, 500);
   }
 
   // ✅ JAIL DAY TICK: advance day while jailed, increase escape chance, auto-release by cap
   function advanceJailDay() {
-    setG(prev => {
+    pushState(prev => {
       const nextDay = prev.day + 1;
       const nextDaysInJail = prev.daysInJail + 1;
       const bonus = 0.10 * (nextDaysInJail - 1);
@@ -932,7 +957,7 @@ export default function App() {
 
   // Single CTA: Continue
   function onContinue() {
-    if (g.currentEvent) return;
+    if (g.currentEvent || canGoForward) return;
 
     if (g.jailed) {
       // While jailed, the day advances and jail timer updates
@@ -977,7 +1002,7 @@ export default function App() {
     fr.onload = () => {
       try {
         const parsed = JSON.parse(String(fr.result || "{}"));
-        setG(parsed);
+        resetState(parsed);
       } catch (e) {
         alert("Invalid save file");
       }
@@ -1021,19 +1046,25 @@ export default function App() {
         {/* Top actions */}
         <div style={{ display: "flex", gap: 8, justifyContent: "space-between", marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
           <div style={{ display: "flex", gap: 8 }}>
-            <button title="Map" style={btn()} onClick={() => setG(p => ({ ...p, showMap: true }))}><MapIcon size={18} /></button>
-            <button title="Black Market" style={btn("#1d3b2d")} onClick={() => setG(p => ({ ...p, showShop: true }))}><ShoppingCart size={18} /></button>
-            <button title="Settings" style={btn("#1c2d4a")} onClick={() => setG(p => ({ ...p, showSettings: true }))}><Settings size={18} /></button>
-            <button title="New Game" style={btn("#3b1d0c")} onClick={() => setG(newGameState(models.find(m => m.healthy)?.id || models[0]?.id))}><Upload size={18} /></button>
+            <button title="Map" style={btn()} onClick={() => updateCurrentState(p => ({ ...p, showMap: true }))}><MapIcon size={18} /></button>
+            <button title="Black Market" style={btn("#1d3b2d")} onClick={() => updateCurrentState(p => ({ ...p, showShop: true }))}><ShoppingCart size={18} /></button>
+            <button title="Settings" style={btn("#1c2d4a")} onClick={() => updateCurrentState(p => ({ ...p, showSettings: true }))}><Settings size={18} /></button>
+            <button title="New Game" style={btn("#3b1d0c")} onClick={() => resetState(newGameState(models.find(m => m.healthy)?.id || models[0]?.id))}><Upload size={18} /></button>
             {/* Save/Load */}
             <button title="Export Save" style={btn("#2a1f4a")} onClick={exportSave}><Save size={18} /></button>
             <button title="Save (Local)" style={btn("#20314d")} onClick={() => saveLocal(g)}>Save Local</button>
-            <button title="Load (Local)" style={btn("#20314d")} onClick={() => { const s = loadLocal(); if (s) setG(s); }}>Load Local</button>
+            <button title="Load (Local)" style={btn("#20314d")} onClick={() => { const s = loadLocal(); if (s) resetState(s); }}>Load Local</button>
             <button title="Import Save (JSON)" style={btn("#20314d")} onClick={() => fileInputRef.current?.click()}>Import</button>
             <input ref={fileInputRef} type="file" accept="application/json" style={{ display: "none" }} onChange={e => importSaveFromFile(e.target.files?.[0])} />
           </div>
 
-          {/* ❌ Removed the TOP Continue button on purpose */}
+          {isHistoryVisible && (
+            <div style={{ ...card(), padding: "8px 12px", display: "flex", gap: 8, alignItems: "center" }}>
+                <button onClick={goBack} disabled={!canGoBack} style={{...btn(), padding: "8px"}}><Rewind size={16} /></button>
+                <div style={{fontSize: 12, color: "#9aa3b2", fontFamily: "monospace"}}>Frame: {currentIndex + 1} / {historyLength}</div>
+                <button onClick={goForward} disabled={!canGoForward} style={{...btn(), padding: "8px"}}><FastForward size={16} /></button>
+            </div>
+          )}
         </div>
 
         {/* Stats */}
@@ -1080,7 +1111,7 @@ export default function App() {
                 : "The dystopian regime has claimed another victim. Your journey ends in the wasteland."}
             </p>
             <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", marginTop: 12 }}>
-              <button style={btn("#4a1d1d")} onClick={() => setG(newGameState(models.find(m => m.healthy)?.id || models[0]?.id))}>New Journey</button>
+              <button style={btn("#4a1d1d")} onClick={() => resetState(newGameState(models.find(m => m.healthy)?.id || models[0]?.id))}>New Journey</button>
               <button style={btn("#1c2d4a")} onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>Back to Top</button>
             </div>
           </div>
@@ -1095,7 +1126,7 @@ export default function App() {
             </div>
             <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
               {g.currentEvent.choices.map((c, idx) => (
-                <button key={idx} style={btn("rgba(24,32,48,0.9)")} onClick={() => handleChoice(c)}>
+                <button key={idx} style={btn("rgba(24,32,48,0.9)")} onClick={() => handleChoice(c)} disabled={canGoForward}>
                   <strong style={{ marginRight: 8 }}>{["🅰️","🅱️","🅲️","🅳️"][idx] || "➕"}</strong>{c.text}
                 </button>
               ))}
@@ -1115,7 +1146,7 @@ export default function App() {
                   Another day dawns in this authoritarian wasteland. What challenges await at{" "}
                   <span style={{ color: "#fde68a", fontWeight: 700 }}>{currentLocation.name}</span>?
                 </p>
-                <button style={primaryBtn()} onClick={onContinue}>
+                <button style={primaryBtn()} onClick={onContinue} disabled={canGoForward}>
                   {g.jailed ? "Continue (Jail Day)" : g.stuckDays > 0 ? "Continue (Handle Situation)" : "Continue"}
                 </button>
               </>
@@ -1195,7 +1226,7 @@ export default function App() {
                   <div style={{ fontSize: 12, color: "#9aa3b2", marginBottom: 4 }}>Model (free only)</div>
                   <select
                     value={g.selectedModel}
-                    onChange={e => setG(p => ({ ...p, selectedModel: e.target.value, apiStats: { ...p.apiStats, currentModel: e.target.value } }))}
+                    onChange={e => updateCurrentState(p => ({ ...p, selectedModel: e.target.value, apiStats: { ...p.apiStats, currentModel: e.target.value } }))}
                     style={{ width: "100%", padding: 12, background: "rgba(15,19,32,0.9)", color: "#e5e7eb", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12 }}
                     disabled={modelsLoading || models.length === 0}
                   >
@@ -1210,7 +1241,7 @@ export default function App() {
                 </label>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button style={btn("#1c2d4a")} onClick={testAPIConnection}>Test Connection</button>
-                  <button style={btn("#3a3f52")} onClick={() => setG(p => ({
+                  <button style={btn("#3a3f52")} onClick={() => updateCurrentState(p => ({
                     ...p, apiStats: { ...p.apiStats, totalCalls: 0, successfulCalls: 0, failedCalls: 0, totalTokensUsed: 0, promptTokens: 0, completionTokens: 0, aiEventCount: 0, hardcodedEventCount: 0, lastError: null }
                   }))}>
                     Reset Stats
@@ -1227,7 +1258,7 @@ export default function App() {
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button style={btn()} onClick={() => setG(p => ({ ...p, showSettings: false }))}>Close</button>
+              <button style={btn()} onClick={() => updateCurrentState(p => ({ ...p, showSettings: false }))}>Close</button>
             </div>
           </div>
         </div>
@@ -1252,7 +1283,7 @@ export default function App() {
                     <div style={{ fontSize: 14, color: "#cbd5e1", marginTop: 4 }}>{item.description}</div>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
                       <div style={{ color: "#34d399", fontWeight: 800 }}>${price}</div>
-                      <button style={btn("#16523a")} onClick={() => buyItem({ ...item, basePrice: price })} disabled={!afford}>
+                      <button style={btn("#16523a")} onClick={() => buyItem({ ...item, basePrice: price })} disabled={!afford || canGoForward}>
                         {afford ? "Buy" : "No Cash"}
                       </button>
                     </div>
@@ -1262,7 +1293,7 @@ export default function App() {
             </div>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <span>Your Money: ${g.money}</span>
-              <button style={btn()} onClick={() => setG(p => ({ ...p, showShop: false }))}>Leave Market</button>
+              <button style={btn()} onClick={() => updateCurrentState(p => ({ ...p, showShop: false }))}>Leave Market</button>
             </div>
           </div>
         </div>
@@ -1274,7 +1305,7 @@ export default function App() {
           <div style={modal({ maxWidth: 900 })}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: '1rem' }}>
               <h3 style={{ marginTop: 0, color: "#93c5fd" }}>Journey Map</h3>
-              <button style={btn()} onClick={() => setG(p => ({ ...p, showMap: false }))}>Close</button>
+              <button style={btn()} onClick={() => updateCurrentState(p => ({ ...p, showMap: false }))}>Close</button>
             </div>
             <JourneyMap
               locations={g.locations}
@@ -1294,7 +1325,7 @@ export default function App() {
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
               <strong>Outcome: {g.lastOutcome.title}</strong>
               <button
-                onClick={() => setG(p => ({ ...p, lastOutcome: null }))}
+                onClick={() => updateCurrentState(p => ({ ...p, lastOutcome: null }))}
                 style={{ ...btn("#1f2937"), padding: "4px 8px", lineHeight: 1 }}
                 aria-label="Dismiss outcome"
               >
@@ -1328,7 +1359,7 @@ export default function App() {
                     <div style={{ fontSize: 14, color: "#cbd5e1", marginTop: 4 }}>{item.description}</div>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
                       <div style={{ color: "#34d399", fontWeight: 800 }}>${item.price}</div>
-                      <button style={btn("#1c4e80")} onClick={() => buyUpgrade(item)} disabled={!afford || purchased}>
+                      <button style={btn("#1c4e80")} onClick={() => buyUpgrade(item)} disabled={!afford || purchased || canGoForward}>
                         {purchased ? "Owned" : afford ? "Purchase" : "Cannot Afford"}
                       </button>
                     </div>
@@ -1337,7 +1368,7 @@ export default function App() {
               })}
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <button style={btn()} onClick={() => setG(p => ({ ...p, showUpgradeShop: false }))}>Continue Journey</button>
+              <button style={btn()} onClick={() => updateCurrentState(p => ({ ...p, showUpgradeShop: false }))}>Continue Journey</button>
             </div>
           </div>
         </div>
