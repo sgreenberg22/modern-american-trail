@@ -1,7 +1,8 @@
 // Banter and vignettes: text that makes quiet days feel like travel.
 import { BANTER, type BanterLine, type BanterWhen } from "./data/banter";
+import { HEADLINES } from "./data/headlines";
 import { CHECKPOINT_VIGNETTES, CITY_VIGNETTES } from "./data/vignettes";
-import type { Rng } from "./rng";
+import { stableFloat, type Rng } from "./rng";
 import { daysOfFood, living, totalRouteMiles } from "./selectors";
 import type { GameState, Member, Stop } from "./types";
 
@@ -59,4 +60,13 @@ export function checkpointVignette(s: GameState, passed: Stop[], rng: Rng): { ti
 
 export function cityVignette(stopId: string): string | null {
   return CITY_VIGNETTES[stopId] ?? null;
+}
+
+// ------------------------------------------------------------------ news ticker
+
+/** The authored headline for today: stable for a given run and day, tied to the region you're in. */
+export function authoredHeadline(s: GameState): string {
+  const region = (s.stops[s.stopIndex + 1] ?? s.stops[s.stopIndex]).region;
+  const pool = stableFloat(s.seed, "region-or-any", s.day) < 0.6 ? HEADLINES[region] : HEADLINES.any;
+  return pool[Math.floor(stableFloat(s.seed, "headline", s.day) * pool.length)];
 }

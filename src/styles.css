@@ -242,3 +242,12 @@ fieldset { border: 0; padding: 0; margin: 0 0 16px; min-width: 0; }
 .vignette p { margin: 0; color: var(--text); }
 .vignette-text { color: var(--muted); font-style: italic; }
 .banter { margin: 0 0 12px; padding: 10px 12px; background: var(--panel-2); border-radius: 10px; font-size: 0.95rem; }
+.ticker { margin: 0; font-size: 0.8rem; color: var(--muted); border-top: 1px solid var(--border); padding-top: 8px; display: flex; gap: 6px; align-items: baseline; }
+.ticker svg { flex: none; color: var(--accent); }
+.ticker-label { font-weight: 700; letter-spacing: 0.06em; color: var(--accent); flex: none; }
+.ticker-label:empty { display: none; }
+.epilogue { border-left: 3px solid var(--border); padding-left: 12px; color: var(--muted); }
+.toggle { display: flex; gap: 8px; align-items: flex-start; color: var(--muted); }
+.toggle input { margin-top: 3px; }
+.deltas li { max-width: 100%; }
+.journal .deltas li { white-space: normal; }

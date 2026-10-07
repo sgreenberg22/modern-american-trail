@@ -13,4 +13,4 @@ export type { Ending, UnlockDef } from "./data/endings";
 export { LANDMARKS } from "./data/landmarks";
 export * from "./meta";
 export { fillEndingText } from "./util";
-export { cityVignette } from "./flavor";
+export { authoredHeadline, cityVignette } from "./flavor";

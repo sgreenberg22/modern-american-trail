@@ -1,6 +1,30 @@
-# Cloudflare Pages configuration. With this file present, it is the source of
-# truth for the Pages project's build output and runtime settings.
-# Secrets (none needed in Phase 1) stay in the dashboard or `wrangler pages secret`.
+# Cloudflare Worker + Static Assets. Serves the game from dist/ and runs
+# worker/index.ts only for /api/* (optional AI flavor text).
+# Secrets: OPENROUTER_API_KEY (optional fallback) via the dashboard or
+# `wrangler secret put OPENROUTER_API_KEY`.
 name = "modern-american-trail"
-pages_build_output_dir = "./dist"
+main = "worker/index.ts"
 compatibility_date = "2026-10-01"
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
+
+# Workers AI: free plan includes a daily allocation and stops there; no billing.
+[ai]
+binding = "AI"
+
+# Per-IP limit for /api/flavor. If the binding isn't available on the account,
+# the Worker falls back to an in-memory limiter.
+[[ratelimits]]
+name = "FLAVOR_LIMITER"
+namespace_id = "4064"
+simple = { limit = 10, period = 60 }
+
+[vars]
+OPENROUTER_MODELS = "apodex/apodex-1.1-mini:free,inception/mercury-decide:free"
+
+[observability]
+enabled = true

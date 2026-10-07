@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { CalendarCheck, Download, LogOut, Map as MapIcon, Upload } from "lucide-react";
 import type { MetaState } from "../engine";
 import { exportSave, importSave, readSavedGame, todayUTC, useGame } from "./useGame";
+import { aiPreference, setAiPreference } from "./flavor";
 import { Hud } from "./components/Hud";
 import { Party } from "./components/Party";
 import { Journal } from "./components/Journal";
@@ -20,6 +21,7 @@ function Title({ meta, onNew, onDaily, onResume }: { meta: MetaState; onNew: () 
   const saved = readSavedGame();
   const fileRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
+  const [ai, setAi] = useState(aiPreference());
   const today = todayUTC();
   const daily = meta.daily[today];
 
@@ -61,6 +63,10 @@ function Title({ meta, onNew, onDaily, onResume }: { meta: MetaState; onNew: () 
         }}
       />
       {error && <p className="error" role="alert">{error}</p>}
+      <label className="toggle small">
+        <input type="checkbox" checked={ai} onChange={e => { setAi(e.target.checked); setAiPreference(e.target.checked); }} />
+        AI-written news headlines and epilogues (optional; the game is fully playable without them)
+      </label>
       <p className="muted small footnote">A satirical road-trip game. Everything here is fictional commentary.</p>
     </main>
   );
