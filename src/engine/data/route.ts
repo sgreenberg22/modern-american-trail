@@ -6,6 +6,7 @@ import type { Rng } from "../rng";
 interface MajorStop {
   id: string;
   name: string;
+  short: string;
   kind: StopKind;
   region: Region;
   lat: number;
@@ -13,21 +14,21 @@ interface MajorStop {
 }
 
 export const MAJOR_STOPS: MajorStop[] = [
-  { id: "portland", name: "Liberal Paradise of Portland", kind: "paradise", region: "northwest", lat: 45.515, lon: -122.679 },
-  { id: "seattle", name: "Sanctuary City of Seattle", kind: "paradise", region: "northwest", lat: 47.606, lon: -122.332 },
-  { id: "boise", name: "Book Burning Fields of Idaho", kind: "hostile", region: "mountain", lat: 43.615, lon: -116.202 },
-  { id: "helena", name: "Surveillance State of Montana", kind: "hostile", region: "mountain", lat: 46.589, lon: -112.039 },
-  { id: "bismarck", name: "The Great Wall of North Dakota", kind: "hostile", region: "plains", lat: 46.808, lon: -100.784 },
-  { id: "minneapolis", name: "Twin Cities Commune", kind: "paradise", region: "midwest", lat: 44.978, lon: -93.265 },
-  { id: "madison", name: "Cheese Curd Collective of Madison", kind: "paradise", region: "midwest", lat: 43.073, lon: -89.401 },
-  { id: "chicago", name: "Sanctuary of Chicago", kind: "paradise", region: "midwest", lat: 41.878, lon: -87.63 },
-  { id: "indianapolis", name: "Corporate Theocracy of Indiana", kind: "hostile", region: "midwest", lat: 39.768, lon: -86.158 },
-  { id: "louisville", name: "Bible Belt Checkpoint (Kentucky)", kind: "hostile", region: "south", lat: 38.253, lon: -85.759 },
-  { id: "charleston", name: "Coal Rolling Capital (West Virginia)", kind: "hostile", region: "south", lat: 38.35, lon: -81.633 },
-  { id: "richmond", name: "Confederate Memorial Highway (Virginia)", kind: "hostile", region: "south", lat: 37.541, lon: -77.436 },
-  { id: "baltimore", name: "Crab Cake Free State of Baltimore", kind: "paradise", region: "east", lat: 39.29, lon: -76.612 },
-  { id: "philadelphia", name: "The Last Stand (Philadelphia)", kind: "paradise", region: "east", lat: 39.953, lon: -75.165 },
-  { id: "vermont", name: "Safe Haven of Vermont", kind: "goal", region: "east", lat: 44.26, lon: -72.576 }
+  { id: "portland", short: "Portland", name: "Liberal Paradise of Portland", kind: "paradise", region: "northwest", lat: 45.515, lon: -122.679 },
+  { id: "seattle", short: "Seattle", name: "Sanctuary City of Seattle", kind: "paradise", region: "northwest", lat: 47.606, lon: -122.332 },
+  { id: "boise", short: "Boise", name: "Book Burning Fields of Idaho", kind: "hostile", region: "mountain", lat: 43.615, lon: -116.202 },
+  { id: "helena", short: "Helena", name: "Surveillance State of Montana", kind: "hostile", region: "mountain", lat: 46.589, lon: -112.039 },
+  { id: "bismarck", short: "Bismarck", name: "The Great Wall of North Dakota", kind: "hostile", region: "plains", lat: 46.808, lon: -100.784 },
+  { id: "minneapolis", short: "Minneapolis", name: "Twin Cities Commune", kind: "paradise", region: "midwest", lat: 44.978, lon: -93.265 },
+  { id: "madison", short: "Madison", name: "Cheese Curd Collective of Madison", kind: "paradise", region: "midwest", lat: 43.073, lon: -89.401 },
+  { id: "chicago", short: "Chicago", name: "Sanctuary of Chicago", kind: "paradise", region: "midwest", lat: 41.878, lon: -87.63 },
+  { id: "indianapolis", short: "Indianapolis", name: "Corporate Theocracy of Indiana", kind: "hostile", region: "midwest", lat: 39.768, lon: -86.158 },
+  { id: "louisville", short: "Louisville", name: "Bible Belt Checkpoint (Kentucky)", kind: "hostile", region: "south", lat: 38.253, lon: -85.759 },
+  { id: "charleston", short: "Charleston", name: "Coal Rolling Capital (West Virginia)", kind: "hostile", region: "south", lat: 38.35, lon: -81.633 },
+  { id: "richmond", short: "Richmond", name: "Confederate Memorial Highway (Virginia)", kind: "hostile", region: "south", lat: 37.541, lon: -77.436 },
+  { id: "baltimore", short: "Baltimore", name: "Crab Cake Free State of Baltimore", kind: "paradise", region: "east", lat: 39.29, lon: -76.612 },
+  { id: "philadelphia", short: "Philadelphia", name: "The Last Stand (Philadelphia)", kind: "paradise", region: "east", lat: 39.953, lon: -75.165 },
+  { id: "vermont", short: "Montpelier", name: "Safe Haven of Vermont", kind: "goal", region: "east", lat: 44.26, lon: -72.576 }
 ];
 
 export const CHECKPOINT_NAMES = [
@@ -75,7 +76,8 @@ export function buildRoute(rng: Rng): { stops: Stop[]; legs: Leg[] } {
       const f = k / (count + 1);
       stops.push({
         id: `cp-${major.id}-${k}`,
-        name: names[nameIdx++ % names.length],
+        name: names[nameIdx % names.length],
+        short: names[nameIdx++ % names.length],
         kind: "waypoint",
         region: f < 0.5 ? major.region : nextMajor.region,
         lat: major.lat + (nextMajor.lat - major.lat) * f,

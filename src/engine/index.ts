@@ -4,6 +4,6 @@ export type { NewGameOptions } from "./engine";
 export * from "./selectors";
 export { serialize, deserialize } from "./save";
 export type { LoadResult } from "./save";
-export { DIFFICULTY } from "./config";
+export { DIFFICULTY, RULES } from "./config";
 export { CHARACTERS } from "./data/characters";
 export { SHOP_ITEMS, UPGRADES } from "./data/items";

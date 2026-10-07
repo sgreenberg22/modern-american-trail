@@ -1,7 +1,7 @@
 // Player bots for the simulation harness. Bots see only what a player sees:
 // public state, choice labels, costs and displayed odds; they never peek at RNG.
 import {
-  applyAction, currentChoices, daysOfFood, expectedMilesPerDay, foodPerDay, living,
+  applyAction, currentChoices, daysOfFood, expectedMilesPerDay, foodPerDay, living, milesToNextTown,
   shopPrice, UPGRADES, EVENTS_BY_ID, type Action, type Effects, type GameState, type Outcome
 } from "../src/engine";
 import { Rng } from "../src/engine/rng";
@@ -9,17 +9,6 @@ import { RULES } from "../src/engine/config";
 
 export type BotName = "smart" | "casual" | "random";
 export type Bot = (s: GameState, rng: Rng) => Action;
-
-/** Miles from here to the next paradise or the goal. */
-function milesToNextTown(s: GameState): number {
-  let miles = 0;
-  for (let i = s.stopIndex; i < s.legs.length; i++) {
-    miles += s.legs[i].miles - (i === s.stopIndex ? s.milesIntoLeg : 0);
-    const k = s.stops[i + 1].kind;
-    if (k === "paradise" || k === "goal") break;
-  }
-  return miles;
-}
 
 function utility(s: GameState, e: Effects | undefined): number {
   if (!e) return 0;

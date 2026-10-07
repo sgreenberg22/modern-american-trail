@@ -39,7 +39,7 @@ const GameStateSchema = z.object({
   difficulty: z.enum(["easy", "normal", "hard"]),
   day: z.number().check(z.int(), z.gte(1), z.lte(10000)),
   stops: z.array(z.object({
-    id: z.string(), name: z.string(), kind: z.enum(["paradise", "hostile", "waypoint", "goal"]),
+    id: z.string(), name: z.string(), short: z.string(), kind: z.enum(["paradise", "hostile", "waypoint", "goal"]),
     region: z.enum(REGIONS), lat: num(), lon: num()
   })).check(z.minLength(2)),
   legs: z.array(z.object({ from: z.number().check(z.int()), to: z.number().check(z.int()), miles: nonneg() })),

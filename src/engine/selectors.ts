@@ -17,6 +17,22 @@ export function milesToNext(s: GameState): number {
   return leg ? leg.miles - s.milesIntoLeg : 0;
 }
 
+/** Miles from here to the next paradise or the goal. */
+export function milesToNextTown(s: GameState): number {
+  let miles = 0;
+  for (let i = s.stopIndex; i < s.legs.length; i++) {
+    miles += s.legs[i].miles - (i === s.stopIndex ? s.milesIntoLeg : 0);
+    const k = s.stops[i + 1].kind;
+    if (k === "paradise" || k === "goal") break;
+  }
+  return miles;
+}
+
+/** The next paradise or the goal. */
+export function nextTown(s: GameState): Stop | undefined {
+  return s.stops.slice(s.stopIndex + 1).find(st => st.kind === "paradise" || st.kind === "goal");
+}
+
 export function totalRouteMiles(s: GameState): number {
   return s.legs.reduce((a, l) => a + l.miles, 0);
 }

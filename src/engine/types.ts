@@ -75,6 +75,8 @@ export interface GameEvent {
 export interface Stop {
   id: string;
   name: string;
+  /** Plain place name for maps and tight spaces. */
+  short: string;
   kind: StopKind;
   region: Region;
   lat: number;

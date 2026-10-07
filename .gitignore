@@ -4,3 +4,4 @@ dist
 npm_output.log
 jules-scratch/
 npm.log
+.wrangler
