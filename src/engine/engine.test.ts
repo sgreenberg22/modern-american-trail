@@ -337,8 +337,9 @@ describe("events", () => {
     for (const ev of EVENTS) {
       ev.choices.forEach((c, i) => {
         const party = base.party.map(m => ({ ...m, skill: c.requires?.skill ?? m.skill }));
+        const items = { ...base.items, ...(c.requires?.item ? { [c.requires.item]: 1 } : {}), ...(c.cost?.items ?? {}), ...(ev.conditions?.item ? { [ev.conditions.item]: 1 } : {}) };
         for (let seed = 0; seed < 20; seed++) {
-          const s = { ...forceEvent({ ...base, party }, ev.id), rng: seed };
+          const s = { ...forceEvent({ ...base, party, items }, ev.id), rng: seed };
           const after = applyAction(s, { type: "choose", choice: i });
           expect(after, `${ev.id} choice ${i}`).not.toBe(s);
           expect(["outcome", "over"]).toContain(after.phase.kind);

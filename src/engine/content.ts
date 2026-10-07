@@ -56,7 +56,7 @@ export function validateContent(events: GameEvent[] = EVENTS): ContentReport {
 
     e.choices.forEach((c, i) => {
       const cat = `${at} choice ${i + 1}`;
-      checkTokens(c.label, cat, errors);
+      if (/\{[a-z]+\}/.test(c.label)) errors.push(`${cat}: choice labels can't use tokens (they aren't filled in)`);
       validateChoice(c, cat, errors);
       for (const o of allOutcomes(c)) {
         if (o.next) nextTargets.add(o.next);
