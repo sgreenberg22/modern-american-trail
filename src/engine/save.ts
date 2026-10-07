@@ -2,6 +2,7 @@
 // loading spinners) live in React and can't leak into a save.
 import { z } from "zod/mini";
 import { STATE_VERSION } from "./engine";
+import { ITEMS_BY_ID } from "./data/items";
 import { EVENTS_BY_ID } from "./selectors";
 import type { GameState } from "./types";
 
@@ -62,7 +63,7 @@ const GameStateSchema = z.object({
   money: nonneg(),
   fuel: nonneg().check(z.lte(100)),
   van: num().check(z.gte(0), z.lte(100)),
-  items: z.object({ medkit: count(), antibiotics: count(), parts: count(), books: count() }),
+  items: z.record(z.string(), count()),
   heat: num().check(z.gte(0), z.lte(100)),
   rep: z.object({ resistance: rep(), faithful: rep(), militia: rep() }),
   party: z.array(z.object({
@@ -75,10 +76,14 @@ const GameStateSchema = z.object({
   seenEvents: z.array(z.string()),
   queuedEvent: z.nullable(z.string()),
   landmarkUsed: z.array(z.enum(LANDMARK_ACTIONS)),
+  seenBanter: z.array(z.string()),
+  seenVignettes: z.array(z.string()),
   journal: z.array(z.object({ day: num(), title: z.string(), text: z.string(), deltas: z.optional(z.array(Delta)) })),
   lastDay: z.nullable(z.object({
     day: num(), miles: num(), foodEaten: num(), fuelUsed: num(), weather: z.enum(WEATHERS), starving: z.boolean(), outOfFuel: z.boolean(),
-    passed: z.array(z.string()), arrived: z.nullable(z.string()), deaths: z.array(z.string()), newConditions: z.array(z.string())
+    passed: z.array(z.string()), arrived: z.nullable(z.string()), deaths: z.array(z.string()), newConditions: z.array(z.string()),
+    banter: z.nullable(z.object({ name: z.string(), text: z.string() })),
+    vignette: z.nullable(z.object({ title: z.string(), text: z.string() }))
   })),
   phase: Phase,
   stats: z.object({
@@ -125,6 +130,12 @@ const MIGRATIONS: Record<number, (raw: Record<string, unknown>) => Record<string
       phase: nextPhase,
       stats: { ...stats, dryDays: 0, maxHeat: 0, arrests: 0 }
     };
+  },
+  // v4 -> v5 (Phase 3): data-driven items (sparse record), banter and vignettes.
+  4: (raw) => {
+    const items = Object.fromEntries(Object.entries((raw.items ?? {}) as Record<string, number>).filter(([, n]) => n > 0));
+    const lastDay = raw.lastDay ? { ...(raw.lastDay as object), banter: null, vignette: null } : null;
+    return { ...raw, items, lastDay, seenBanter: [], seenVignettes: [] };
   }
 };
 
@@ -163,5 +174,7 @@ export function deserialize(text: string): LoadResult {
   if (s.stopIndex < s.legs.length && s.milesIntoLeg > s.legs[s.stopIndex].miles) return { ok: false, error: "This save file is damaged or was edited." };
   if (s.phase.kind === "event" && !EVENTS_BY_ID.has(s.phase.event.eventId)) return { ok: false, error: "This save refers to an event that no longer exists." };
   if (s.queuedEvent && !EVENTS_BY_ID.has(s.queuedEvent)) s.queuedEvent = null;
+  // Drop items that no longer exist rather than failing the whole load.
+  s.items = Object.fromEntries(Object.entries(s.items).filter(([k, n]) => ITEMS_BY_ID.has(k) && n > 0));
   return { ok: true, state: s };
 }

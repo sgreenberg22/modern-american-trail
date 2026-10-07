@@ -1,7 +1,7 @@
 // Player bots for the simulation harness. Bots see only what a player sees:
 // public state, choice labels, costs and displayed odds; they never peek at RNG.
 import {
-  applyAction, cantBuy, checkOdds, currentChoices, currentStop, DIFFICULTY, EVENTS_BY_ID, expectedMilesPerDay,
+  applyAction, cantBuy, checkOdds, itemCount, currentChoices, currentStop, DIFFICULTY, EVENTS_BY_ID, expectedMilesPerDay,
   foodPerDay, garageCost, LANDMARKS, living, milesToNextGas, milesToNextTown, PACE, RATIONS, RULES,
   shopPrice, UPGRADES, VAN, type Action, type Effects, type GameState, type Outcome, type Rations
 } from "../src/engine";
@@ -25,10 +25,10 @@ function manage(s: GameState): Action | null {
   const hurt = [...alive].sort((a, b) => a.health - b.health)[0];
   const injured = alive.find(m => m.conditions.includes("injured"));
   const sick = alive.find(m => m.conditions.includes("sick"));
-  if (s.items.medkit > 0 && (injured || hurt.health < 45)) return { type: "useItem", item: "medkit", member: (injured ?? hurt).id };
-  if (s.items.antibiotics > 0 && sick) return { type: "useItem", item: "antibiotics", member: sick.id };
-  if (s.items.parts > 0 && s.van < 45) return { type: "useItem", item: "parts" };
-  if (s.items.books > 0 && alive.reduce((a, m) => a + m.morale, 0) / alive.length < 35) return { type: "useItem", item: "books" };
+  if (itemCount(s, "medkit") > 0 && (injured || hurt.health < 45)) return { type: "useItem", item: "medkit", member: (injured ?? hurt).id };
+  if (itemCount(s, "antibiotics") > 0 && sick) return { type: "useItem", item: "antibiotics", member: sick.id };
+  if (itemCount(s, "parts") > 0 && s.van < 45) return { type: "useItem", item: "parts" };
+  if (itemCount(s, "books") > 0 && alive.reduce((a, m) => a + m.morale, 0) / alive.length < 35) return { type: "useItem", item: "books" };
 
   const rations = rationsThatLast(s, daysToTown(s) * 1.1);
   if (rations !== s.rations) return { type: "setRations", rations };
@@ -114,8 +114,8 @@ export const smartBot: Bot = (s) => {
     const alive = living(s);
     const lowest = Math.min(...alive.map(p => p.health));
     const nextLegCost = need.food * (45 / 20) + need.gas * (17 / 5);
-    if (s.items.medkit < 1 && s.money >= shopPrice(s, "medkit") + nextLegCost * 1.5) { const a = tryBuy(s, "medkit"); if (a) return a; }
-    if (alive.some(p => p.conditions.includes("sick")) && s.items.antibiotics < 1) { const a = tryBuy(s, "antibiotics"); if (a) return a; }
+    if (itemCount(s, "medkit") < 1 && s.money >= shopPrice(s, "medkit") + nextLegCost * 1.5) { const a = tryBuy(s, "medkit"); if (a) return a; }
+    if (alive.some(p => p.conditions.includes("sick")) && itemCount(s, "antibiotics") < 1) { const a = tryBuy(s, "antibiotics"); if (a) return a; }
     for (const id of ["pantry", "vehicle", "rack", "comms"]) {
       const up = UPGRADES.find(u => u.id === id)!;
       if (!s.upgrades.includes(id) && s.money >= up.price + tripCost(s) * 0.6) return { type: "buyUpgrade", upgrade: id };
@@ -169,8 +169,8 @@ export const casualBot: Bot = (s, rng) => {
   if (s.phase.kind === "outcome") return { type: "continue" };
   if (s.phase.kind === "event") return rng.chance(0.3) ? randomBot(s, rng) : bestChoice(s);
   const hurt = [...living(s)].sort((a, b) => a.health - b.health)[0];
-  if (s.items.medkit > 0 && hurt.health < 30) return { type: "useItem", item: "medkit", member: hurt.id };
-  if (s.items.parts > 0 && s.van < 25) return { type: "useItem", item: "parts" };
+  if (itemCount(s, "medkit") > 0 && hurt.health < 30) return { type: "useItem", item: "medkit", member: hurt.id };
+  if (itemCount(s, "parts") > 0 && s.van < 25) return { type: "useItem", item: "parts" };
   if (s.phase.kind === "road") return { type: "travel" };
   const need = needs(s);
   if (s.fuel < need.gas * 0.9) { const a = tryBuy(s, "gas"); if (a) return a; }

@@ -1,6 +1,7 @@
 // Content validation. Used by tests and by `npm run validate`.
 import { EFFECT_BOUNDS, WEATHER } from "./config";
 import { CONTENT_ENDINGS } from "./data/endings";
+import { ITEMS as ITEMS_LIST } from "./data/items";
 import { EVENTS } from "./data/events";
 import type { Choice, GameEvent, Outcome, Region } from "./types";
 
@@ -9,7 +10,7 @@ const TOKENS = new Set(["{stop}", "{leader}", "{member}", "{skilled}"]);
 /** Events the engine starts directly (not via "next"), so they need no incoming link. */
 export const ENGINE_EVENTS = ["arrest", "breakdown", "on-fumes"];
 const FACTIONS = ["resistance", "faithful", "militia"];
-const ITEMS = ["medkit", "antibiotics", "parts", "books"];
+const ITEMS = ITEMS_LIST.map(i => i.id);
 const CONDITIONS = ["injured", "sick", "exhausted"];
 /** Minimum road events that can fire in each region (raised in Phase 3). */
 export const MIN_ROAD_EVENTS_PER_REGION = 10;
@@ -93,7 +94,8 @@ function validateChoice(c: Choice, at: string, errors: string[]) {
     if (!c.outcomes?.length) errors.push(`${at}: no outcomes`);
     if (c.success || c.failure) errors.push(`${at}: success/failure without a check`);
   }
-  if (c.requires && c.check && c.requires.skill !== c.check.skill) errors.push(`${at}: requires and check use different skills`);
+  if (c.requires?.skill && c.check && c.requires.skill !== c.check.skill) errors.push(`${at}: requires and check use different skills`);
+  if (c.requires?.item && !ITEMS.includes(c.requires.item)) errors.push(`${at}: requires unknown item "${c.requires.item}"`);
   if (c.cost?.money !== undefined && c.cost.money <= 0) errors.push(`${at}: cost must be positive`);
   for (const k of Object.keys(c.cost?.items ?? {})) if (!ITEMS.includes(k)) errors.push(`${at}: unknown item cost "${k}"`);
   if (c.check?.faction && !FACTIONS.includes(c.check.faction)) errors.push(`${at}: unknown faction "${c.check.faction}"`);

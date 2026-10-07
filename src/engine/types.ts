@@ -13,7 +13,8 @@ export type Weather = "clear" | "rain" | "storm" | "heat" | "snow" | "fog";
 export type Season = "spring" | "summer" | "fall" | "winter";
 export type Condition = "injured" | "sick" | "exhausted";
 export type Faction = "resistance" | "faithful" | "militia";
-export type ItemId = "medkit" | "antibiotics" | "parts" | "books";
+/** Inventory item id; see data/items.ts. */
+export type ItemId = string;
 export type EndingId =
   | "full-house" | "vermont" | "lone-survivor" | "settled"
   | "detained" | "starved" | "worn-down" | "lost";
@@ -57,8 +58,8 @@ export type CheckDifficulty = "easy" | "medium" | "hard";
 
 export interface Choice {
   label: string;
-  /** Only offered if a living member has this skill. */
-  requires?: { skill: Skill };
+  /** Only offered if a living member has this skill and/or you carry this item. */
+  requires?: { skill?: Skill; item?: ItemId };
   /** Costs paid up front; the choice is disabled if you can't afford it. */
   cost?: { money?: number; food?: number; fuel?: number; items?: Partial<Record<ItemId, number>> };
   /** If present, roll against the check and use success/failure outcomes. */
@@ -200,6 +201,10 @@ export interface DaySummary {
   arrived: string | null;
   deaths: string[];
   newConditions: string[];
+  /** A line of party chatter on a quiet day. */
+  banter: { name: string; text: string } | null;
+  /** A short scene for a stop seen for the first time today. */
+  vignette: { title: string; text: string } | null;
 }
 
 export interface GameState {
@@ -235,6 +240,10 @@ export interface GameState {
   queuedEvent: string | null;
   /** Landmark actions already taken at the current landmark. */
   landmarkUsed: LandmarkActionId[];
+  /** Banter line ids already used this run. */
+  seenBanter: string[];
+  /** Stops (by name) whose vignette has been shown this run. */
+  seenVignettes: string[];
   journal: JournalEntry[];
   lastDay: DaySummary | null;
   phase: Phase;
@@ -254,6 +263,7 @@ export type Action =
   | { type: "setRations"; rations: Rations }
   | { type: "useItem"; item: ItemId; member?: string }
   | { type: "buy"; item: string }
+  | { type: "sell"; item: ItemId }
   | { type: "buyUpgrade"; upgrade: string }
   | { type: "repair" }
   | { type: "rest" }

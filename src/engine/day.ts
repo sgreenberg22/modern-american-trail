@@ -24,7 +24,7 @@ export function travel(s: GameState, rng: Rng): boolean {
   // Arrested: the day is spent pulled over; the arrest event decides what happens.
   if (s.heat >= HEAT.arrest) {
     const day = endOfDay(s, rng, "road");
-    s.lastDay = { day: s.day, miles: 0, foodEaten: day.eaten, fuelUsed: 0, weather: s.weather, starving: day.starving, outOfFuel: false, passed: [], arrived: null, deaths: day.deaths, newConditions: day.newConditions };
+    s.lastDay = { day: s.day, miles: 0, foodEaten: day.eaten, fuelUsed: 0, weather: s.weather, starving: day.starving, outOfFuel: false, passed: [], arrived: null, deaths: day.deaths, newConditions: day.newConditions, banter: null, vignette: null };
     if (checkWipe(s)) return true;
     s.stats.arrests += 1;
     startEvent(s, rng, EVENTS_BY_ID.get("arrest")!, (nextStop(s) ?? currentStop(s)).name, "road");
@@ -87,7 +87,7 @@ export function travel(s: GameState, rng: Rng): boolean {
   s.lastDay = {
     day: s.day, miles: moved, foodEaten: day.eaten, fuelUsed: round1(fuelUsed), weather: s.weather,
     starving: day.starving, outOfFuel, passed: passed.map(p => p.name), arrived: arrived?.name ?? null,
-    deaths: day.deaths, newConditions: day.newConditions
+    deaths: day.deaths, newConditions: day.newConditions, banter: null, vignette: null
   };
 
   const lines = [`Drove ${moved} miles${s.weather !== "clear" ? ` through ${wx.label.toLowerCase()}` : ""}.`];

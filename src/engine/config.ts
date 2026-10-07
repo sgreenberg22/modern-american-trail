@@ -176,6 +176,3 @@ export const EFFECT_BOUNDS = {
   rep: [-30, 30],
   items: [-2, 3]
 } as const;
-
-/** Item weights in pounds; food is 1 lb per unit. */
-export const ITEM_WEIGHT = { medkit: 5, antibiotics: 1, parts: 25, books: 5 } as const;
