@@ -41,7 +41,7 @@ export interface StartingKit {
 }
 
 export const KITS: StartingKit[] = [
-  { id: "none", name: "Travel light", description: "Nothing extra. Purists only." , money: 60 },
+  { id: "none", name: "Travel light", description: "+$60 and an empty trunk. Purists only.", money: 60 },
   { id: "cooler", name: "Cooler of sandwiches", description: "+30 food.", food: 30 },
   { id: "toolbox", name: "Toolbox", description: "Two sets of spare parts.", items: { parts: 2 }, unlock: "reach-twin-cities" },
   { id: "cash", name: "Emergency cash", description: "+$150 sewn into the seat cushions.", money: 150, unlock: "win-normal" },

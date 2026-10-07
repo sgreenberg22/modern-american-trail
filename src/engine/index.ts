@@ -8,5 +8,7 @@ export { DIFFICULTY, RULES, PACE, RATIONS, WEATHER, VAN, HEAT } from "./config";
 export { CHARACTERS, KITS, PARTY_SIZE } from "./data/characters";
 export { SHOP_ITEMS, UPGRADES, ITEM_USES } from "./data/items";
 export { ENDINGS, UNLOCKS } from "./data/endings";
+export type { Ending, UnlockDef } from "./data/endings";
 export { LANDMARKS } from "./data/landmarks";
 export * from "./meta";
+export { fillEndingText } from "./util";
