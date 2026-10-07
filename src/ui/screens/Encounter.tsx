@@ -7,10 +7,12 @@ export function Deltas({ deltas }: { deltas: Delta[] }) {
   return (
     <ul className="deltas" aria-label="Effects">
       {deltas.map((d, i) => {
-        const good = d.unit === "days" || d.label === "Lost ground" ? false : d.value > 0;
+        // Heat going up is bad; days lost and ground lost are always bad.
+        const good = d.unit === "days" || d.label === "Lost ground" ? false : d.label === "Heat" ? d.value < 0 : d.value > 0;
         const sign = d.value > 0 ? "+" : "−";
         const abs = Math.abs(d.value);
-        const shown = d.unit === "$" ? `${sign}$${abs}` : d.unit === "days" ? `${abs} day${abs === 1 ? "" : "s"}` : `${sign}${abs}${d.unit === "mi" ? " mi" : ""}`;
+        if (d.unit === "tag") return <li key={i} className={good ? "good" : "bad"}>{d.label}</li>;
+        const shown = d.unit === "$" ? `${sign}$${abs}` : d.unit === "days" ? `${abs} day${abs === 1 ? "" : "s"}` : `${sign}${abs}${d.unit === "mi" ? " mi" : d.unit === "gal" ? " gal" : ""}`;
         return <li key={i} className={good ? "good" : "bad"}>{d.label} {shown}</li>;
       })}
     </ul>
@@ -52,8 +54,16 @@ export function EventCard({ state, dispatch }: { state: GameState; dispatch: (a:
                   )}
                   {c.odds === undefined && c.skilledName && <span className="odds good">{skillLabel(c.skill!)} ({c.skilledName})</span>}
                   {c.cost?.money && <span className="cost">${c.cost.money}</span>}
+                  {c.cost?.food && <span className="cost">{c.cost.food} food</span>}
+                  {c.cost?.fuel && <span className="cost">{c.cost.fuel} gal</span>}
+                  {c.cost?.items?.parts && <span className="cost">Spare parts</span>}
                   {!c.enabled && c.reason && <span className="muted">{c.reason}</span>}
                 </span>
+                {c.oddsParts && c.oddsParts.length > 1 && (
+                  <span className="odds-why">
+                    {c.oddsParts.map((p, k) => `${k === 0 ? "" : p.value >= 0 ? " + " : " − "}${k === 0 ? `${p.label} ${p.value}` : `${p.label} ${Math.abs(p.value)}`}`).join("")}
+                  </span>
+                )}
               </span>
             </button>
           </li>

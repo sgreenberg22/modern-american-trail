@@ -50,17 +50,34 @@ scripts/           sim.ts, bots.ts, validate-content.ts
 
 **Saves** contain game state only, never UI state. The game autosaves to `localStorage` after every action. Players can download a save file and load it from the title screen. Loading validates the whole file; saves from the pre-rebuild version are rejected with a clear message.
 
+## How a run works
+
+You start in Portland with a van, three travelers, some food, gas and cash, and drive about 4,000 miles to Vermont.
+
+- **Pace and rations** trade speed against health, morale, food and gas.
+- **The van** burns gas (25 gal tank, about 24 mpg) and wears down. Below 30% it can break down; at 0% it crawls. Run out of gas and you're on foot until you find a way to get more.
+- **Paradises** (Seattle, Twin Cities, Madison, Chicago, Baltimore, Philadelphia) are safe stops with a market that has its own stock and stable prices, a garage, upgrades, and a safe house to rest in. You can also stay for good, which ends the run with a partial score.
+- **Landmarks** (Boise, Helena, Bismarck, Indianapolis, Louisville, Charleston, Richmond) are hostile stops. They have an overpriced gas station, and you can do two of: talk to locals, scavenge, pick up odd jobs, lay low, or take a motel room.
+- **Heat** rises at checkpoints and from risky choices, and cools over time. At 60 you're wanted: checkpoints get harder and pursuit events start. At 100 you're arrested; you can post bail, use a lawyer, try to escape, or wait it out.
+- **Conditions** (injured, sick, exhausted) drain people and lower the odds of checks they make. Medkits, antibiotics and rest treat them.
+- **Factions** (Resistance, Faithful, Militia) remember you. Reputation shifts odds, prices and donations.
+- **Weather** follows region and season, so a fall departure meets snow in the mountains.
+
+Eight endings: everyone makes it, some make it, one makes it, settling down early, detained, starved, worn down, and lost. Runs earn a score; Hard is worth 2.5×.
+
+Between runs, five characters and four starting kits unlock (reach Chicago, escape jail, win on Normal, and so on). The **Daily Run** gives everyone the same seed, party and month each UTC day, and produces a shareable result.
+
 ## Balance
 
-Tuned with `npm run sim` (10,000 runs per difficulty). The **smart** bot plays like a careful player using only what's on screen, including the displayed odds. **Casual** approximates a first-timer. **Random** is a floor.
+Tuned with `npm run sim` (10,000 runs per difficulty). The **smart** bot plays like a careful player using only what's on screen, including the displayed odds. **Casual** approximates a first-timer who keeps food and gas stocked but ignores pace, rations and landmarks. **Random** is a floor.
 
 | Difficulty | Target | Smart | Casual | Random |
 |---|---|---|---|---|
-| Easy | ~60% | 61.3% | 32.2% | 1.8% |
-| Normal | 30–40% | 39.2% | 15.2% | 0.8% |
-| Hard | 10–15% | 12.0% | 3.3% | 0.1% |
+| Easy | ~60% | 59.1% | 31.8% | 0.6% |
+| Normal | 30–40% | 33.8% | 11.8% | 0.0% |
+| Hard | 10–15% | 12.8% | 3.6% | 0.0% |
 
-Most deaths are starvation (about 55%) or the road wearing people down (about 35%), with events making up the rest. Winning runs take roughly 45–49 days.
+Careful players mostly lose to wear; careless ones mostly starve. Winning runs take about 48–53 days.
 
 ## Adding events
 

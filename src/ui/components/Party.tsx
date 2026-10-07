@@ -31,7 +31,10 @@ export function Party({ state }: { state: GameState }) {
               <strong>{m.name}</strong>
               <span className="muted small">{m.profession}</span>
             </div>
-            <div className="tag">{skillLabel(m.skill)}</div>
+            <div className="tags">
+              <span className="tag">{skillLabel(m.skill)}</span>
+              {m.alive && m.conditions.map(c => <span key={c} className={`tag cond ${c}`}>{c}</span>)}
+            </div>
             {m.alive ? (
               <>
                 <Meter label="Health" value={m.health} kind="health" />

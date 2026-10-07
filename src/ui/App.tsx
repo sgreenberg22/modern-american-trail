@@ -1,47 +1,53 @@
 import { useRef, useState } from "react";
-import { Download, LogOut, Map as MapIcon, Upload } from "lucide-react";
-import { DIFFICULTY, type Difficulty } from "../engine";
-import { exportSave, importSave, readSavedGame, useGame } from "./useGame";
+import { CalendarCheck, Download, LogOut, Map as MapIcon, Upload } from "lucide-react";
+import type { MetaState } from "../engine";
+import { exportSave, importSave, readSavedGame, todayUTC, useGame } from "./useGame";
 import { Hud } from "./components/Hud";
 import { Party } from "./components/Party";
 import { Journal } from "./components/Journal";
 import { RouteMap } from "./components/RouteMap";
+import { Controls } from "./components/Controls";
 import { EventCard, OutcomeCard } from "./screens/Encounter";
 import { Road } from "./screens/Road";
 import { Town } from "./screens/Town";
+import { Landmark } from "./screens/Landmark";
 import { GameOver } from "./screens/GameOver";
+import { Setup } from "./screens/Setup";
 
-const DIFFICULTY_BLURB: Record<Difficulty, string> = {
-  easy: "More forgiving roads and better odds.",
-  normal: "The trip as intended. Most parties don't make it.",
-  hard: "Less food, less money, meaner checkpoints."
-};
+type Game = ReturnType<typeof useGame>;
 
-function Title({ onStart, onResume }: { onStart: (d: Difficulty) => void; onResume: ReturnType<typeof useGame>["resume"] }) {
+function Title({ meta, onNew, onDaily, onResume }: { meta: MetaState; onNew: () => void; onDaily: () => void; onResume: Game["resume"] }) {
   const saved = readSavedGame();
   const fileRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
+  const today = todayUTC();
+  const daily = meta.daily[today];
 
   return (
     <main className="title">
       <h1>The Modern American Trail</h1>
-      <p className="tagline">Portland to Vermont. Three friends, one van, and roughly four thousand miles of hellhole in between.</p>
+      <p className="tagline">Portland to Vermont. Three friends, one van, and about four thousand miles of hellhole in between.</p>
 
       {saved && (
         <button className="btn primary wide" onClick={() => onResume(saved)}>
-          Continue: day {saved.day}, {saved.totalMiles.toLocaleString("en-US")} miles
+          <strong>Continue</strong>
+          <span className="small">Day {saved.day}, {saved.totalMiles.toLocaleString("en-US")} miles{saved.daily ? " · Daily Run" : ""}</span>
         </button>
       )}
+      <button className={`btn wide${saved ? "" : " primary"}`} onClick={onNew}>
+        <strong>New run</strong>
+        <span className="small">Pick your party, difficulty and departure month.</span>
+      </button>
+      <button className="btn wide" onClick={onDaily}>
+        <strong><CalendarCheck size={14} aria-hidden /> Daily Run · {today}</strong>
+        <span className="small">{daily ? `You scored ${daily.score.toLocaleString("en-US")} today. Replays don't count.` : "Same party, same roads, same luck as everyone else today."}</span>
+      </button>
 
-      <h2 className="sub">New run</h2>
-      <div className="difficulty">
-        {(Object.keys(DIFFICULTY) as Difficulty[]).map(d => (
-          <button key={d} className={`btn wide${!saved && d === "normal" ? " primary" : ""}`} onClick={() => onStart(d)}>
-            <strong>{DIFFICULTY[d].label}</strong>
-            <span className="small">{DIFFICULTY_BLURB[d]}</span>
-          </button>
-        ))}
-      </div>
+      {meta.runs > 0 && (
+        <p className="muted small">
+          {meta.runs} run{meta.runs === 1 ? "" : "s"}, {meta.wins} reached Vermont. Best: {Math.max(meta.bestScore.easy, meta.bestScore.normal, meta.bestScore.hard).toLocaleString("en-US")}.
+        </p>
+      )}
 
       <button className="btn link" onClick={() => fileRef.current?.click()}><Upload size={14} aria-hidden /> Load a save file</button>
       <input
@@ -61,20 +67,26 @@ function Title({ onStart, onResume }: { onStart: (d: Difficulty) => void; onResu
 }
 
 export default function App() {
-  const { state, dispatch, start, resume, quit } = useGame();
+  const game = useGame();
+  const { state, dispatch, meta, newUnlocks } = game;
+  const [screen, setScreen] = useState<"title" | "setup">("title");
   const [showMap, setShowMap] = useState(false);
 
-  if (!state) return <Title onStart={d => start(d)} onResume={resume} />;
+  if (!state) {
+    return screen === "setup"
+      ? <Setup meta={meta} onBack={() => setScreen("title")} onStart={o => { game.start(o); setScreen("title"); }} />
+      : <Title meta={meta} onNew={() => setScreen("setup")} onDaily={game.startDaily} onResume={game.resume} />;
+  }
 
   const phase = state.phase.kind;
   return (
     <div className="app">
       <nav className="topbar" aria-label="Game menu">
-        <span className="brand">The Modern American Trail</span>
+        <span className="brand">The Modern American Trail{state.daily ? <span className="muted small"> · Daily</span> : null}</span>
         <div className="topbar-actions">
           <button className="icon-btn" aria-pressed={showMap} aria-label="Toggle map" title="Map" onClick={() => setShowMap(v => !v)}><MapIcon size={18} /></button>
           <button className="icon-btn" aria-label="Download save file" title="Download save" onClick={() => exportSave(state)}><Download size={18} /></button>
-          <button className="icon-btn" aria-label="Quit to title" title="Quit to title (progress is saved)" onClick={quit}><LogOut size={18} /></button>
+          <button className="icon-btn" aria-label="Quit to title" title="Quit to title (progress is saved)" onClick={game.quit}><LogOut size={18} /></button>
         </div>
       </nav>
 
@@ -87,7 +99,9 @@ export default function App() {
           {phase === "event" && <EventCard state={state} dispatch={dispatch} />}
           {phase === "outcome" && <OutcomeCard state={state} dispatch={dispatch} />}
           {phase === "town" && <Town state={state} dispatch={dispatch} />}
-          {phase === "over" && <GameOver state={state} onNewGame={quit} />}
+          {phase === "landmark" && <Landmark state={state} dispatch={dispatch} />}
+          {phase === "over" && <GameOver state={state} newUnlocks={newUnlocks} onNewGame={game.quit} />}
+          <Controls state={state} dispatch={dispatch} />
         </main>
         <aside className="side">
           <Party state={state} />
