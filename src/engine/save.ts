@@ -10,8 +10,14 @@ const REGIONS = ["northwest", "mountain", "plains", "midwest", "south", "east"] 
 const num = () => z.number().check(z.refine(Number.isFinite, "must be finite"));
 const nonneg = () => num().check(z.gte(0));
 
-const Delta = z.object({ label: z.string(), value: num(), unit: z.optional(z.enum(["$", "mi", "%", "days"])) });
-const AfterEvent = z.enum(["road", "town"]);
+const Delta = z.object({ label: z.string(), value: num(), unit: z.optional(z.enum(["$", "mi", "%", "days", "gal", "tag"])) });
+const AfterEvent = z.enum(["road", "town", "landmark"]);
+const ENDING_IDS = ["full-house", "vermont", "lone-survivor", "settled", "detained", "starved", "worn-down", "lost"] as const;
+const WEATHERS = ["clear", "rain", "storm", "heat", "snow", "fog"] as const;
+const CONDITIONS = ["injured", "sick", "exhausted"] as const;
+const LANDMARK_ACTIONS = ["talk", "scavenge", "layLow", "motel", "work"] as const;
+const count = () => z.number().check(z.int(), z.gte(0), z.lte(99));
+const rep = () => num().check(z.gte(-100), z.lte(100));
 
 const Phase = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("road") }),
@@ -29,7 +35,8 @@ const Phase = z.discriminatedUnion("kind", [
     })
   }),
   z.object({ kind: z.literal("town") }),
-  z.object({ kind: z.literal("over"), result: z.enum(["win", "dead"]), cause: z.optional(z.string()) })
+  z.object({ kind: z.literal("landmark") }),
+  z.object({ kind: z.literal("over"), ending: z.enum(ENDING_IDS), cause: z.optional(z.string()) })
 ]);
 
 const GameStateSchema = z.object({
@@ -37,7 +44,10 @@ const GameStateSchema = z.object({
   seed: z.string().check(z.maxLength(200)),
   rng: z.number().check(z.int(), z.gte(0), z.lte(0xffffffff)),
   difficulty: z.enum(["easy", "normal", "hard"]),
+  daily: z.nullable(z.string().check(z.regex(/^\d{4}-\d{2}-\d{2}$/))),
   day: z.number().check(z.int(), z.gte(1), z.lte(10000)),
+  startMonth: z.number().check(z.int(), z.gte(1), z.lte(12)),
+  weather: z.enum(WEATHERS),
   stops: z.array(z.object({
     id: z.string(), name: z.string(), short: z.string(), kind: z.enum(["paradise", "hostile", "waypoint", "goal"]),
     region: z.enum(REGIONS), lat: num(), lon: num()
@@ -46,24 +56,35 @@ const GameStateSchema = z.object({
   stopIndex: z.number().check(z.int(), z.gte(0)),
   milesIntoLeg: nonneg(),
   totalMiles: nonneg(),
+  pace: z.enum(["steady", "hurried", "grueling"]),
+  rations: z.enum(["filling", "meager", "bare"]),
   food: nonneg(),
   money: nonneg(),
+  fuel: nonneg().check(z.lte(100)),
+  van: num().check(z.gte(0), z.lte(100)),
+  items: z.object({ medkit: count(), antibiotics: count(), parts: count(), books: count() }),
+  heat: num().check(z.gte(0), z.lte(100)),
+  rep: z.object({ resistance: rep(), faithful: rep(), militia: rep() }),
   party: z.array(z.object({
     id: z.string(), name: z.string(), profession: z.string(), skill: z.enum(SKILLS),
     health: num().check(z.gte(0), z.lte(100)), morale: num().check(z.gte(0), z.lte(100)),
-    alive: z.boolean(), causeOfDeath: z.optional(z.string()), diedOnDay: z.optional(z.number())
+    alive: z.boolean(), conditions: z.array(z.enum(CONDITIONS)), causeOfDeath: z.optional(z.string()), diedOnDay: z.optional(z.number())
   })).check(z.minLength(1), z.maxLength(8)),
   upgrades: z.array(z.string()),
   flags: z.array(z.string()),
   seenEvents: z.array(z.string()),
   queuedEvent: z.nullable(z.string()),
+  landmarkUsed: z.array(z.enum(LANDMARK_ACTIONS)),
   journal: z.array(z.object({ day: num(), title: z.string(), text: z.string(), deltas: z.optional(z.array(Delta)) })),
   lastDay: z.nullable(z.object({
-    day: num(), miles: num(), foodEaten: num(), starving: z.boolean(),
-    passed: z.array(z.string()), arrived: z.nullable(z.string()), deaths: z.array(z.string())
+    day: num(), miles: num(), foodEaten: num(), fuelUsed: num(), weather: z.enum(WEATHERS), starving: z.boolean(), outOfFuel: z.boolean(),
+    passed: z.array(z.string()), arrived: z.nullable(z.string()), deaths: z.array(z.string()), newConditions: z.array(z.string())
   })),
   phase: Phase,
-  stats: z.object({ eventsSeen: nonneg(), checksPassed: nonneg(), checksFailed: nonneg(), foodShortDays: nonneg() })
+  stats: z.object({
+    eventsSeen: nonneg(), checksPassed: nonneg(), checksFailed: nonneg(), foodShortDays: nonneg(),
+    dryDays: nonneg(), maxHeat: nonneg(), arrests: nonneg()
+  })
 });
 
 const Envelope = z.object({ format: z.literal("modern-american-trail"), version: z.number(), state: z.unknown() });
@@ -72,7 +93,40 @@ const Envelope = z.object({ format: z.literal("modern-american-trail"), version:
  * Migrations from version N to N+1. Version 3 is the first engine-based format;
  * saves from the pre-rebuild game (v2) don't map onto it and are rejected.
  */
-const MIGRATIONS: Record<number, (raw: Record<string, unknown>) => Record<string, unknown>> = {};
+const MIGRATIONS: Record<number, (raw: Record<string, unknown>) => Record<string, unknown>> = {
+  // v3 -> v4 (Phase 2): vehicle, pace/rations, items, heat, reputation, conditions, calendar, endings.
+  3: (raw) => {
+    const party = (raw.party as Record<string, unknown>[] | undefined)?.map(m => ({ ...m, conditions: [] as string[] })) as Record<string, unknown>[] | undefined;
+    const phase = raw.phase as { kind: string; result?: string; cause?: string } | undefined;
+    let nextPhase: unknown = phase;
+    if (phase?.kind === "over") {
+      const alive = party?.filter(m => m.alive).length ?? 0;
+      const ending = phase.result === "win"
+        ? (alive === party?.length ? "full-house" : alive === 1 ? "lone-survivor" : "vermont")
+        : phase.cause === "starvation" ? "starved" : phase.cause === "exhaustion" ? "worn-down" : "lost";
+      nextPhase = { kind: "over", ending, cause: phase.cause };
+    }
+    const stats = (raw.stats ?? {}) as Record<string, unknown>;
+    return {
+      ...raw,
+      daily: null,
+      startMonth: 6,
+      weather: "clear",
+      pace: "steady",
+      rations: "filling",
+      fuel: 20,
+      van: 100,
+      items: { medkit: 0, antibiotics: 0, parts: 0, books: 0 },
+      heat: 0,
+      rep: { resistance: 0, faithful: 0, militia: 0 },
+      party,
+      landmarkUsed: [],
+      lastDay: null,
+      phase: nextPhase,
+      stats: { ...stats, dryDays: 0, maxHeat: 0, arrests: 0 }
+    };
+  }
+};
 
 export function serialize(state: GameState): string {
   return JSON.stringify({ format: "modern-american-trail", version: STATE_VERSION, state });

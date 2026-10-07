@@ -23,7 +23,7 @@ let outOfTarget = 0;
 
 for (const bot of bots) {
   console.log(`\n=== ${bot} bot, ${runs.toLocaleString()} runs per difficulty ===`);
-  console.log("difficulty  win rate  target       avg days (win / all)  survivors  starving days  unique events  top causes of death");
+  console.log("difficulty  win rate  target       avg days (win / all)  survivors  hungry/dry/arrests  unique events  how runs end (losses)");
   for (const difficulty of difficulties) {
     const results: RunResult[] = [];
     const t0 = performance.now();
@@ -34,7 +34,7 @@ for (const bot of bots) {
     const wins = results.filter(r => r.win);
     const rate = wins.length / runs;
     const causes: Record<string, number> = {};
-    for (const r of results) if (!r.win) causes[r.cause ?? "unknown"] = (causes[r.cause ?? "unknown"] ?? 0) + 1;
+    for (const r of results) if (!r.win) causes[r.ending] = (causes[r.ending] ?? 0) + 1;
     const top = Object.entries(causes).sort((a, b) => b[1] - a[1]).slice(0, 4)
       .map(([c, n]) => `${c} ${pct(n / Math.max(1, runs - wins.length))}`).join(", ");
     const [lo, hi] = TARGETS[difficulty];
@@ -43,7 +43,7 @@ for (const bot of bots) {
     console.log(
       `${difficulty.padEnd(10)}  ${pct(rate).padStart(8)}  ${`${pct(lo)}-${pct(hi)}`.padEnd(11)}${bot === "smart" ? (inTarget ? "✓" : "✗") : " "}` +
       `  ${mean(wins.map(r => r.days)).toFixed(1).padStart(8)} / ${mean(results.map(r => r.days)).toFixed(1).padEnd(9)}` +
-      `  ${mean(wins.map(r => r.survivors)).toFixed(2).padStart(9)}  ${mean(results.map(r => r.starvingDays)).toFixed(1).padStart(13)}` +
+      `  ${mean(wins.map(r => r.survivors)).toFixed(2).padStart(9)}  ${`${mean(results.map(r => r.starvingDays)).toFixed(1)}/${mean(results.map(r => r.dryDays)).toFixed(1)}/${mean(results.map(r => r.arrests)).toFixed(2)}`.padStart(18)}` +
       `  ${mean(results.map(r => r.uniqueEvents)).toFixed(1).padStart(13)}  ${top}` +
       `   (${((performance.now() - t0) / 1000).toFixed(1)}s)`
     );
