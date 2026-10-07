@@ -1,0 +1,6 @@
+# Cloudflare Pages configuration. With this file present, it is the source of
+# truth for the Pages project's build output and runtime settings.
+# Secrets (none needed in Phase 1) stay in the dashboard or `wrangler pages secret`.
+name = "modern-american-trail"
+pages_build_output_dir = "./dist"
+compatibility_date = "2026-10-01"
