@@ -23,7 +23,8 @@ const hintFor = (unlock?: string) => UNLOCKS.find(u => u.id === unlock)?.hint ??
 
 export function Setup({ meta, onStart, onBack }: { meta: MetaState; onStart: (o: Omit<NewGameOptions, "seed">) => void; onBack: () => void }) {
   const available = CHARACTERS.filter(c => isUnlocked(meta, c.unlock));
-  const [difficulty, setDifficulty] = useState<Difficulty>("normal");
+  // First-timers start on Easy; after that, Normal.
+  const [difficulty, setDifficulty] = useState<Difficulty>(meta.runs === 0 ? "easy" : "normal");
   const [month, setMonth] = useState(6);
   const [party, setParty] = useState<string[]>(() => available.slice(0, PARTY_SIZE).map(c => c.id));
   const [kit, setKit] = useState("cooler");
