@@ -27,6 +27,8 @@ export function conditionsMet(s: GameState, c: EventConditions | undefined): boo
   if (c.seasons && !c.seasons.includes(calendar(s).season)) return false;
   if (c.maxVan !== undefined && s.van > c.maxVan) return false;
   if (c.maxFuel !== undefined && s.fuel > c.maxFuel) return false;
+  if (c.stops && !c.stops.includes(s.stops[s.stopIndex].id)) return false;
+  if (c.item && itemCount(s, c.item) <= 0) return false;
   return true;
 }
 

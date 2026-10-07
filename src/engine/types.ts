@@ -88,6 +88,10 @@ export interface EventConditions {
   seasons?: Season[];
   maxVan?: number;
   maxFuel?: number;
+  /** Only at these stops (stop ids), e.g. a scene specific to Chicago. */
+  stops?: string[];
+  /** Carrying this item. */
+  item?: ItemId;
 }
 
 export interface GameEvent {

@@ -2,6 +2,8 @@
 import { EFFECT_BOUNDS, WEATHER } from "./config";
 import { CONTENT_ENDINGS } from "./data/endings";
 import { ITEMS as ITEMS_LIST } from "./data/items";
+import { MAJOR_STOPS } from "./data/route";
+const MAJOR_STOP_IDS = MAJOR_STOPS.map(s => s.id);
 import { EVENTS } from "./data/events";
 import type { Choice, GameEvent, Outcome, Region } from "./types";
 
@@ -12,15 +14,20 @@ export const ENGINE_EVENTS = ["arrest", "breakdown", "on-fumes"];
 const FACTIONS = ["resistance", "faithful", "militia"];
 const ITEMS = ITEMS_LIST.map(i => i.id);
 const CONDITIONS = ["injured", "sick", "exhausted"];
-/** Minimum road events that can fire in each region (raised in Phase 3). */
+/** Phase 3 content targets. The validator fails below the minimums; the report shows progress to targets. */
 export const MIN_ROAD_EVENTS_PER_REGION = 10;
 export const MIN_PARADISE_EVENTS = 5;
+export const TARGETS = { standalone: 250, chains: 12, chainBeats: [3, 6] as [number, number] };
 
 export interface ContentReport {
   errors: string[];
   coverage: { region: Region; road: number; paradise: number }[];
   tags: Record<string, number>;
   total: number;
+  /** Events that can fire on their own (road or paradise), not chain beats. */
+  standalone: number;
+  /** Quest chains: a road/paradise start followed by "next" beats, with their lengths. */
+  chains: { start: string; beats: number }[];
 }
 
 export function validateContent(events: GameEvent[] = EVENTS): ContentReport {
@@ -41,6 +48,8 @@ export function validateContent(events: GameEvent[] = EVENTS): ContentReport {
     checkTokens(e.text, at, errors);
     for (const f of [...(e.conditions?.flags ?? []), ...(e.conditions?.notFlags ?? [])]) flagsRead.add(f);
     for (const w of e.conditions?.weather ?? []) if (!(w in WEATHER)) errors.push(`${at}: unknown weather "${w}"`);
+    for (const st of e.conditions?.stops ?? []) if (!MAJOR_STOP_IDS.includes(st)) errors.push(`${at}: unknown stop "${st}"`);
+    if (e.conditions?.item && !ITEMS.includes(e.conditions.item)) errors.push(`${at}: unknown item "${e.conditions.item}"`);
 
     // There must always be a way out: at least one choice with no skill requirement and no cost.
     if (!e.choices.some(c => !c.requires && !c.cost)) errors.push(`${at}: every choice is gated by a skill or a cost`);
@@ -79,7 +88,36 @@ export function validateContent(events: GameEvent[] = EVENTS): ContentReport {
 
   const tags: Record<string, number> = {};
   for (const e of events) for (const t of e.tags) tags[t] = (tags[t] ?? 0) + 1;
-  return { errors, coverage, tags, total: events.length };
+  // Quest chains: walk "next" links (and flag-gated paradise payoffs) from each starting beat.
+  const byId = new Map(events.map(e => [e.id, e]));
+  const nextOf = (e: GameEvent) => [...new Set(e.choices.flatMap(c => allOutcomes(c)).map(o => o.next).filter((x): x is string => !!x))];
+  const isChainStart = (e: GameEvent) => e.where !== "chain" && nextOf(e).length > 0 && !events.some(o => nextOf(o).includes(e.id));
+  const chains = events.filter(isChainStart).map(start => {
+    const seen = new Set<string>([start.id]);
+    let frontier = nextOf(start);
+    let depth = 1;
+    while (frontier.length) {
+      depth++;
+      const nxt: string[] = [];
+      for (const id of frontier) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const e = byId.get(id);
+        if (e) nxt.push(...nextOf(e));
+      }
+      frontier = nxt.filter(id => !seen.has(id));
+    }
+    // A flag-gated payoff (e.g. a delivery at a paradise) counts as a final beat.
+    const flags = new Set(start.choices.flatMap(c => allOutcomes(c)).flatMap(o => o.setFlags ?? []));
+    const payoff = events.some(e => e.where === "paradise" && e.conditions?.flags?.some(f => flags.has(f)));
+    return { start: start.id, beats: depth + (payoff ? 1 : 0) };
+  });
+  for (const c of chains) {
+    if (c.beats < TARGETS.chainBeats[0] || c.beats > TARGETS.chainBeats[1]) errors.push(`chain "${c.start}" has ${c.beats} beats (want ${TARGETS.chainBeats[0]}-${TARGETS.chainBeats[1]})`);
+  }
+  const standalone = events.filter(e => e.where !== "chain" && !events.some(o => nextOf(o).includes(e.id))).length;
+
+  return { errors, coverage, tags, total: events.length, standalone, chains };
 }
 
 function allOutcomes(c: Choice): Outcome[] {

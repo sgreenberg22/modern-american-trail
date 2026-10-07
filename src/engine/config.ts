@@ -26,24 +26,23 @@ export interface DifficultyConfig {
 }
 
 // Tuned with `npm run sim`; see README for current win rates.
-// harshness/generosity are well away from 1.0 because the starter events were
-// written generously. The Phase 3 content pass recalibrates authored numbers so
-// these can move back toward 1.0 without changing the win rates.
+// Authored event numbers are what happens on Normal. harshness/generosity scale
+// bad and good outcomes per difficulty and should stay close to 1.0.
 export const DIFFICULTY: Record<Difficulty, DifficultyConfig> = {
   easy: {
     label: "Easy", startMoney: 330, startFood: 50, startFuel: 22, milesPerDay: 135, milesJitter: 20, foodPerPerson: 1.65,
     healthDrain: [0, 3], moraleDrain: [0, 2], eventChance: 0.55, checkBonus: 5, cityBonus: [65, 110],
-    harshness: 2.25, generosity: 0.47, scoreMult: 1
+    harshness: 0.97, generosity: 1.05, scoreMult: 1
   },
   normal: {
     label: "Normal", startMoney: 290, startFood: 50, startFuel: 20, milesPerDay: 130, milesJitter: 22, foodPerPerson: 1.95,
     healthDrain: [0, 2], moraleDrain: [0, 3], eventChance: 0.6, checkBonus: 0, cityBonus: [60, 100],
-    harshness: 2.25, generosity: 0.45, scoreMult: 1.5
+    harshness: 1, generosity: 1, scoreMult: 1.5
   },
   hard: {
     label: "Hard", startMoney: 285, startFood: 45, startFuel: 18, milesPerDay: 125, milesJitter: 25, foodPerPerson: 2.0,
     healthDrain: [0, 2], moraleDrain: [0, 3], eventChance: 0.65, checkBonus: -5, cityBonus: [55, 95],
-    harshness: 2.3, generosity: 0.44, scoreMult: 2.5
+    harshness: 1.03, generosity: 0.97, scoreMult: 2.5
   }
 };
 
@@ -169,7 +168,7 @@ export const EFFECT_BOUNDS = {
   van: [-40, 40],
   miles: [-100, 150],
   delay: [0, 3],
-  health: [-40, 40],
+  health: [-50, 40],
   healthOne: [-60, 60],
   morale: [-40, 40],
   heat: [-80, 60],
