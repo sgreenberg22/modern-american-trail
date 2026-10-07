@@ -2,7 +2,9 @@
 import type { GameEvent } from "../../types";
 import { CHECKPOINT_EVENTS } from "./checkpoints";
 import { CORE_EVENTS } from "./core";
+import { PEOPLE_EVENTS } from "./people";
+import { EAST_EVENTS } from "./east";
 import { HEARTLAND_EVENTS } from "./heartland";
 import { WEST_EVENTS } from "./west";
 
-export const EVENTS: GameEvent[] = [...CORE_EVENTS, ...CHECKPOINT_EVENTS, ...WEST_EVENTS, ...HEARTLAND_EVENTS];
+export const EVENTS: GameEvent[] = [...CORE_EVENTS, ...CHECKPOINT_EVENTS, ...WEST_EVENTS, ...HEARTLAND_EVENTS, ...EAST_EVENTS, ...PEOPLE_EVENTS];
