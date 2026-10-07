@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { BedDouble, Home, Wrench } from "lucide-react";
 import {
-  currentStop, expectedMilesPerDay, foodPerDay, garageCost, living, milesToNextTown, nextTown, RULES, UPGRADES, VAN,
+  cityVignette, currentStop, expectedMilesPerDay, foodPerDay, garageCost, living, milesToNextTown, nextTown, RULES, UPGRADES, VAN,
   type Action, type GameState
 } from "../../engine";
 import { Market } from "../components/Market";
@@ -20,6 +20,7 @@ export function Town({ state, dispatch }: { state: GameState; dispatch: (a: Acti
   return (
     <section className="panel card-town" aria-labelledby="town-h">
       <h2 id="town-h">{here.name}</h2>
+      {cityVignette(here.id) && <p className="prose vignette-text">{cityVignette(here.id)}</p>}
       <p className="prose">
         A safe stop. {next ? <>The next one is <strong>{next.name}</strong>, roughly {days} days of driving.
         You'll eat about <strong>{foodNeeded} food</strong> (you have {Math.floor(state.food)}) and burn about <strong>{gasNeeded} gallons</strong>, with landmark gas stations along the way.</> : null}

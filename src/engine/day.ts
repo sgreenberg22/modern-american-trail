@@ -1,6 +1,7 @@
 // A day on the road: weather, driving, fuel, wear, food, health, conditions, arrival.
 import { CONDITIONS, DIFFICULTY, HEAT, PACE, RATIONS, RULES, VAN, WEATHER, WEATHER_ODDS } from "./config";
 import { conditionsMet, pickEvent, startEvent } from "./encounter";
+import { BANTER_CHANCE, checkpointVignette, pickBanter } from "./flavor";
 import type { Rng } from "./rng";
 import { averageHealth, calendar, currentStop, EVENTS_BY_ID, fuelCapacity, living, nextStop } from "./selectors";
 import type { Condition, GameEvent, GameState, Stop, Weather } from "./types";
@@ -24,7 +25,7 @@ export function travel(s: GameState, rng: Rng): boolean {
   // Arrested: the day is spent pulled over; the arrest event decides what happens.
   if (s.heat >= HEAT.arrest) {
     const day = endOfDay(s, rng, "road");
-    s.lastDay = { day: s.day, miles: 0, foodEaten: day.eaten, fuelUsed: 0, weather: s.weather, starving: day.starving, outOfFuel: false, passed: [], arrived: null, deaths: day.deaths, newConditions: day.newConditions };
+    s.lastDay = { day: s.day, miles: 0, foodEaten: day.eaten, fuelUsed: 0, weather: s.weather, starving: day.starving, outOfFuel: false, passed: [], arrived: null, deaths: day.deaths, newConditions: day.newConditions, banter: null, vignette: null };
     if (checkWipe(s)) return true;
     s.stats.arrests += 1;
     startEvent(s, rng, EVENTS_BY_ID.get("arrest")!, (nextStop(s) ?? currentStop(s)).name, "road");
@@ -87,8 +88,10 @@ export function travel(s: GameState, rng: Rng): boolean {
   s.lastDay = {
     day: s.day, miles: moved, foodEaten: day.eaten, fuelUsed: round1(fuelUsed), weather: s.weather,
     starving: day.starving, outOfFuel, passed: passed.map(p => p.name), arrived: arrived?.name ?? null,
-    deaths: day.deaths, newConditions: day.newConditions
+    deaths: day.deaths, newConditions: day.newConditions, banter: null, vignette: null
   };
+
+  s.lastDay.vignette = checkpointVignette(s, passed, rng);
 
   const lines = [`Drove ${moved} miles${s.weather !== "clear" ? ` through ${wx.label.toLowerCase()}` : ""}.`];
   if (passed.length) lines.push(`Passed ${passed.map(p => p.name).join(" and ")}.`);
@@ -125,9 +128,11 @@ export function travel(s: GameState, rng: Rng): boolean {
   const heading = nextStop(s) ?? currentStop(s);
   const checkpoint = passed[passed.length - 1];
   let ev: GameEvent | undefined;
-  if (s.queuedEvent) {
+  // A queued beat waits until its day; if its conditions no longer hold, the chain quietly ends.
+  if (s.queuedEvent && s.day >= (s.queuedDay ?? 0)) {
     const queued = EVENTS_BY_ID.get(s.queuedEvent);
     s.queuedEvent = null;
+    s.queuedDay = null;
     if (queued && conditionsMet(s, queued.conditions)) ev = queued;
   }
   if (!ev && outOfFuel) ev = EVENTS_BY_ID.get("on-fumes");
@@ -135,8 +140,19 @@ export function travel(s: GameState, rng: Rng): boolean {
   if (!ev && checkpoint) ev = pickEvent(s, rng, "road", checkpoint.region, "checkpoint");
   if (!ev && rng.chance(cfg.eventChance)) ev = pickEvent(s, rng, "road", heading.region);
 
-  if (ev) startEvent(s, rng, ev, (checkpoint ?? heading).name, "road");
-  else s.phase = { kind: "road" };
+  if (ev) {
+    startEvent(s, rng, ev, (checkpoint ?? heading).name, "road");
+  } else {
+    s.phase = { kind: "road" };
+    // Quiet day: someone talks.
+    if (rng.chance(BANTER_CHANCE)) {
+      const banter = pickBanter(s, rng);
+      if (banter) {
+        s.lastDay = { ...s.lastDay, banter };
+        log(s, { title: banter.name, text: banter.text });
+      }
+    }
+  }
   return true;
 }
 

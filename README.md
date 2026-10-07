@@ -8,14 +8,16 @@ React + Vite + TypeScript, hosted on Cloudflare Pages (free tier). The game runs
 
 ```bash
 npm install
-npm run dev          # Vite dev server at http://localhost:5173
+npm run dev          # Vite dev server at http://localhost:5173 (no AI; authored text only)
 ```
 
-To run it the way Cloudflare serves it:
+To run it the way Cloudflare serves it (static assets plus the Worker):
 
 ```bash
-npm run pages:dev    # builds, then `wrangler pages dev` at http://localhost:8788
+npm run worker:dev   # builds, then `wrangler dev` at http://localhost:8787
 ```
+
+Workers AI calls from `wrangler dev` go to your Cloudflare account, so run `npx wrangler login` first if you want AI text locally. Without it the game falls back to authored text.
 
 ## Scripts
 
@@ -23,9 +25,10 @@ npm run pages:dev    # builds, then `wrangler pages dev` at http://localhost:878
 |---|---|
 | `npm run dev` | Vite dev server with hot reload |
 | `npm run build` | Type-check, then build to `dist/` |
-| `npm run pages:dev` | Build and serve with Wrangler, as on Cloudflare |
+| `npm run worker:dev` | Build and serve with Wrangler (assets + Worker), as on Cloudflare |
+| `npm run deploy` | Build and `wrangler deploy` (normally Workers Builds does this from GitHub) |
 | `npm test` | Vitest engine tests |
-| `npm run validate` | Check event content (schema, effect bounds, chains, flags) and print a coverage report |
+| `npm run validate` | Check content (events, chains, banter, vignettes, items) and print a coverage report |
 | `npm run sim` | 10,000 seeded headless runs per difficulty with three bots; reports win rates against targets |
 | `npm run check` | Typecheck + validate + test |
 
@@ -43,6 +46,7 @@ src/engine/        Pure game engine: no React, no Math.random, no DOM
   config.ts        Difficulty settings and rules
   data/            Route (real coordinates), characters, items, events
 src/ui/            React components; useGame() wires the engine to React
+worker/            Cloudflare Worker: static assets + optional /api/flavor
 scripts/           sim.ts, bots.ts, validate-content.ts
 ```
 
@@ -73,24 +77,43 @@ Tuned with `npm run sim` (10,000 runs per difficulty). The **smart** bot plays l
 
 | Difficulty | Target | Smart | Casual | Random |
 |---|---|---|---|---|
-| Easy | ~60% | 59.1% | 31.8% | 0.6% |
-| Normal | 30–40% | 33.8% | 11.8% | 0.0% |
-| Hard | 10–15% | 12.8% | 3.6% | 0.0% |
+| Easy | ~60% | 62.5% | 21.3% | 0.1% |
+| Normal | 30–40% | 36.1% | 8.1% | 0.0% |
+| Hard | 10–15% | 12.3% | 1.8% | 0.0% |
 
-Careful players mostly lose to wear; careless ones mostly starve. Winning runs take about 48–53 days.
+Event effects run at about 1.0× on every difficulty, so the numbers in the text are what happens. Difficulty comes from food, daily wear and money. Careful players mostly lose to wear; careless ones mostly starve. Winning runs take about 48–53 days.
 
-## Adding events
+## Content
 
-Events live in `src/engine/data/events.ts`. Each has an `id`, `where` (`road`, `paradise`, or `chain` for quest beats reached only via `next`), optional `regions` and `conditions`, `tags`, and up to four `choices`. A choice can require a skill, cost money, roll a skill check (`check` + `success`/`failure` outcomes), or have plain weighted `outcomes`. Outcomes carry `effects`, can set or clear flags, and can queue the next beat of a chain with `next`.
+All content is data in `src/engine/data/`, checked by `npm run validate` (and by the tests):
 
-Text tokens: `{stop}`, `{leader}`, `{member}`, `{skilled}`. Run `npm run validate` after editing; the tests also run it.
+- **Events** (`events/`): 289 in themed files. That's 265 standalone, 12 quest chains of 3–4 beats whose flags carry across the run, and per-city paradise scenes. Nothing repeats within a run until its pool is exhausted. Read `docs/tone.md` before writing any.
+- **Items** (`items.ts`): 60, sold at stops with seeded stock and prices, or found on the road.
+- **Banter** (`banter.ts`): 20+ lines per character, many tied to the moment (hunger, heat, weather, grief, a particular companion).
+- **Vignettes** (`vignettes.ts`, `landmarks.ts`): a scene for every checkpoint, city and landmark.
+- **Headlines** (`headlines.ts`): the authored news ticker, by region.
+
+An event has an `id`, `where` (`road`, `paradise`, or `chain` for beats reached only via `next`), optional `regions` and `conditions` (day, flags, skills, items, heat, reputation, weather, season, specific stops), `tags`, and up to four `choices`. A choice can require a skill or item, cost money, food, gas or items, roll a skill check (`check` + `success`/`failure`), or have weighted `outcomes`. Outcomes carry `effects`, set or clear flags, and can queue the next chain beat with `next` and `nextIn` (days). Text tokens: `{stop}`, `{leader}`, `{member}`, `{skilled}`.
 
 ## Deploying
 
-The Pages project is connected to GitHub. Pushing to `main` deploys production. Pushing any other branch deploys a preview at `https://<branch>.modern-american-trail.pages.dev`.
+The site is a Cloudflare **Worker with static assets** (`wrangler.toml`): `dist/` is served as-is, and `worker/index.ts` runs only for `/api/*`.
 
-Build settings: build command `npm run build`, output directory `dist`. `wrangler.toml` is the source of truth for Pages configuration.
+**One-time setup (Workers Builds, connected to GitHub):**
+1. Cloudflare dashboard → **Workers & Pages** → **Create** → **Import a repository** → pick `sgreenberg22/modern-american-trail`.
+2. Build command `npm run build`, deploy command `npx wrangler deploy`. Leave "non-production branch deploy command" as `npx wrangler versions upload` so other branches get preview URLs.
+3. Optional: under the Worker's **Settings → Variables and Secrets**, add the secret `OPENROUTER_API_KEY` (only used as a fallback; Workers AI needs no key).
+4. Once the Worker is live, the old Pages project can be deleted. Until then, Pages ignores `wrangler.toml` (it has no `pages_build_output_dir`) and keeps serving the static game without AI.
 
-### Environment variables
+### Environment
 
-None are required right now; the game has no server code. `OPENROUTER_API_KEY` can stay set in the dashboard. It will be used again when optional AI flavor text returns in Phase 3.
+| Name | Kind | Purpose |
+|---|---|---|
+| `AI` | Workers AI binding | Headlines and epilogues. Free daily allocation; stops (doesn't bill) when used up on the free plan. |
+| `FLAVOR_LIMITER` | Rate limit binding | 10 requests per minute per IP on `/api/flavor`. Falls back to an in-memory limiter if unavailable. |
+| `OPENROUTER_MODELS` | Var | Comma-separated fallback models. Anything not ending in `:free` is ignored. |
+| `OPENROUTER_API_KEY` | Secret (optional) | Enables the OpenRouter fallback. |
+
+### AI is optional
+
+Everything AI writes is garnish: news-ticker headlines and an end-of-run epilogue. The ticker always has authored headlines, the first AI error turns AI off for the session, and players can switch it off on the title screen. The endpoint only accepts structured game context (no prompts, no model choice), caps body size, rate-limits by IP, caches shared headlines at the edge, and uses only free models, so the cost of abuse is $0.

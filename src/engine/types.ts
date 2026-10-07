@@ -13,7 +13,8 @@ export type Weather = "clear" | "rain" | "storm" | "heat" | "snow" | "fog";
 export type Season = "spring" | "summer" | "fall" | "winter";
 export type Condition = "injured" | "sick" | "exhausted";
 export type Faction = "resistance" | "faithful" | "militia";
-export type ItemId = "medkit" | "antibiotics" | "parts" | "books";
+/** Inventory item id; see data/items.ts. */
+export type ItemId = string;
 export type EndingId =
   | "full-house" | "vermont" | "lone-survivor" | "settled"
   | "detained" | "starved" | "worn-down" | "lost";
@@ -47,8 +48,10 @@ export interface Outcome {
   effects?: Effects;
   setFlags?: string[];
   clearFlags?: string[];
-  /** Event id that fires on the next travel day (quest chains). */
+  /** Event id that fires on a later travel day (quest chains). */
   next?: string;
+  /** Days until `next` fires (default 1: the next travel day). */
+  nextIn?: number;
   /** Ends the run with an authored ending. Only endings in CONTENT_ENDINGS are allowed. */
   ending?: EndingId;
 }
@@ -57,8 +60,8 @@ export type CheckDifficulty = "easy" | "medium" | "hard";
 
 export interface Choice {
   label: string;
-  /** Only offered if a living member has this skill. */
-  requires?: { skill: Skill };
+  /** Only offered if a living member has this skill and/or you carry this item. */
+  requires?: { skill?: Skill; item?: ItemId };
   /** Costs paid up front; the choice is disabled if you can't afford it. */
   cost?: { money?: number; food?: number; fuel?: number; items?: Partial<Record<ItemId, number>> };
   /** If present, roll against the check and use success/failure outcomes. */
@@ -87,6 +90,10 @@ export interface EventConditions {
   seasons?: Season[];
   maxVan?: number;
   maxFuel?: number;
+  /** Only at these stops (stop ids), e.g. a scene specific to Chicago. */
+  stops?: string[];
+  /** Carrying this item. */
+  item?: ItemId;
 }
 
 export interface GameEvent {
@@ -200,6 +207,10 @@ export interface DaySummary {
   arrived: string | null;
   deaths: string[];
   newConditions: string[];
+  /** A line of party chatter on a quiet day. */
+  banter: { name: string; text: string } | null;
+  /** A short scene for a stop seen for the first time today. */
+  vignette: { title: string; text: string } | null;
 }
 
 export interface GameState {
@@ -233,8 +244,14 @@ export interface GameState {
   flags: string[];
   seenEvents: string[];
   queuedEvent: string | null;
+  /** Earliest day the queued event may fire. */
+  queuedDay: number | null;
   /** Landmark actions already taken at the current landmark. */
   landmarkUsed: LandmarkActionId[];
+  /** Banter line ids already used this run. */
+  seenBanter: string[];
+  /** Stops (by name) whose vignette has been shown this run. */
+  seenVignettes: string[];
   journal: JournalEntry[];
   lastDay: DaySummary | null;
   phase: Phase;
@@ -254,6 +271,7 @@ export type Action =
   | { type: "setRations"; rations: Rations }
   | { type: "useItem"; item: ItemId; member?: string }
   | { type: "buy"; item: string }
+  | { type: "sell"; item: ItemId }
   | { type: "buyUpgrade"; upgrade: string }
   | { type: "repair" }
   | { type: "rest" }

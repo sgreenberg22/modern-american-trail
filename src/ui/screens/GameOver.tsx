@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { Share2, Unlock } from "lucide-react";
 import { endingOf, fillEndingText, living, score, shareText, type GameState, type UnlockDef } from "../../engine";
+import { useEpilogue } from "../flavor";
 
 export function GameOver({ state, newUnlocks, onNewGame }: { state: GameState; newUnlocks: UnlockDef[]; onNewGame: () => void }) {
   const [copied, setCopied] = useState(false);
+  const epilogue = useEpilogue(state);
   const ending = endingOf(state);
   if (!ending) return null;
   const s = score(state);
@@ -21,6 +23,8 @@ export function GameOver({ state, newUnlocks, onNewGame }: { state: GameState; n
       {state.daily && <p className="muted small">Daily Run · {state.daily}</p>}
       <h2 id="over-h">{ending.title}</h2>
       <p className="prose">{fillEndingText(state, ending.id)}</p>
+      {epilogue.loading && <p className="muted small">Writing the epilogue…</p>}
+      {epilogue.text && <p className="prose epilogue" aria-label="Epilogue">{epilogue.text}</p>}
 
       <div className="score">
         <div className="score-total"><span className="muted small">Score</span><strong>{s.total.toLocaleString("en-US")}</strong></div>

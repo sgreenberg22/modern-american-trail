@@ -1,12 +1,13 @@
 // Read-only queries over GameState, shared by the reducer, the UI, the bots and the tests.
 import {
-  CHECK_BASE, CHECK_MAX, CHECK_MIN, CONDITION_CHECK_PENALTY, DIFFICULTY, HEAT, ITEM_WEIGHT, PACE,
+  CHECK_BASE, CHECK_MAX, CHECK_MIN, CONDITION_CHECK_PENALTY, DIFFICULTY, HEAT, PACE,
   RATIONS, RULES, SKILLED_BONUS, VAN, WEATHER
 } from "./config";
 import { ENDINGS } from "./data/endings";
 import { EVENTS } from "./data/events";
 import {
-  ALWAYS_STOCKED, LANDMARK_MARKUP, LANDMARK_STOCK, OPTIONAL_STOCK, OPTIONAL_STOCK_COUNT, PRICE_SPREAD, SHOP_ITEMS
+  ALWAYS_STOCKED, ITEMS, ITEMS_BY_ID, LANDMARK_EXTRA_STOCK, LANDMARK_MARKUP, LANDMARK_STAPLES, PARADISE_EXTRA_STOCK,
+  PARADISE_STAPLES, PRICE_SPREAD, SHOP_ITEMS, type ItemDef
 } from "./data/items";
 import { Rng, hashString, stableFloat } from "./rng";
 import type { Choice, GameEvent, GameState, ItemId, Member, Season, Skill, Stop } from "./types";
@@ -14,6 +15,13 @@ import type { Choice, GameEvent, GameState, ItemId, Member, Season, Skill, Stop 
 export const EVENTS_BY_ID: ReadonlyMap<string, GameEvent> = new Map(EVENTS.map(e => [e.id, e]));
 
 export const living = (s: GameState): Member[] => s.party.filter(m => m.alive);
+export const itemCount = (s: GameState, id: ItemId): number => s.items[id] ?? 0;
+
+/** The best tool you carry for a skill, if any. */
+export function bestTool(s: GameState, skill: Skill): ItemDef | undefined {
+  return ITEMS.filter(i => i.passive?.skill === skill && itemCount(s, i.id) > 0)
+    .sort((a, b) => b.passive!.bonus - a.passive!.bonus)[0];
+}
 export const leader = (s: GameState): Member | undefined => living(s)[0];
 export const currentStop = (s: GameState): Stop => s.stops[s.stopIndex];
 export const nextStop = (s: GameState): Stop | undefined => s.stops[s.stopIndex + 1];
@@ -104,6 +112,8 @@ export function checkBreakdown(s: GameState, check: NonNullable<Choice["check"]>
     const pen = conditionPenalty(who);
     if (pen) parts.push({ label: `${who.name} is ${who.conditions.join(" and ")}`, value: -pen });
   }
+  const tool = bestTool(s, check.skill);
+  if (tool) parts.push({ label: tool.name, value: tool.passive!.bonus });
   if (check.faction && s.rep[check.faction]) {
     parts.push({ label: `${factionLabel(check.faction)} reputation`, value: Math.round(s.rep[check.faction] / RULES.repCheckDivisor) });
   }
@@ -157,19 +167,24 @@ export function cargoCapacity(s: GameState): number {
 }
 
 export function cargoWeight(s: GameState): number {
-  return Math.round(s.food + (Object.keys(s.items) as ItemId[]).reduce((a, k) => a + s.items[k] * ITEM_WEIGHT[k], 0));
+  return Math.round(s.food + Object.entries(s.items).reduce((a, [k, n]) => a + n * (ITEMS_BY_ID.get(k)?.weight ?? 0), 0));
 }
 
 // ------------------------------------------------------------------ shops
 
-/** What's for sale where you are: full market in a paradise, a gas station at a landmark. */
+/**
+ * What's for sale where you are: a full market in a paradise, a gas station at a
+ * landmark. Food, gas and a few staples are always there; the rest is seeded per stop.
+ */
 export function shopStock(s: GameState): string[] {
   const stop = currentStop(s);
-  if (stop.kind === "hostile") return LANDMARK_STOCK;
-  if (stop.kind !== "paradise") return [];
+  if (stop.kind !== "paradise" && stop.kind !== "hostile") return [];
+  const staples = stop.kind === "paradise" ? PARADISE_STAPLES : LANDMARK_STAPLES;
+  const extra = stop.kind === "paradise" ? PARADISE_EXTRA_STOCK : LANDMARK_EXTRA_STOCK;
+  const candidates = ITEMS.filter(i => i.price !== undefined && (i.stockedAt ?? ["paradise"]).includes(stop.kind) && !staples.includes(i.id)).map(i => i.id);
   const rng = new Rng(hashString(`${s.seed}|stock|${stop.id}`));
-  const optional = rng.shuffle(OPTIONAL_STOCK).slice(0, OPTIONAL_STOCK_COUNT);
-  return [...ALWAYS_STOCKED, ...OPTIONAL_STOCK.filter(id => optional.includes(id))];
+  const picked = new Set(rng.shuffle(candidates).slice(0, extra));
+  return [...ALWAYS_STOCKED, ...staples, ...ITEMS.filter(i => picked.has(i.id)).map(i => i.id)];
 }
 
 /** Stable per-stop price: same number shown and charged, for the whole run. */
@@ -190,9 +205,19 @@ export function cantBuy(s: GameState, itemId: string): string | null {
   if (!item || !shopStock(s).includes(itemId)) return "Not sold here";
   if (s.money < shopPrice(s, itemId)) return "Not enough cash";
   if (item.fuel && s.fuel + item.fuel > fuelCapacity(s) + 0.01) return "Tank is full";
-  const weight = (item.food ?? 0) + (item.item ? ITEM_WEIGHT[item.item] : 0);
+  const weight = (item.food ?? 0) + (item.item ? ITEMS_BY_ID.get(item.item)?.weight ?? 0 : 0);
   if (weight && cargoWeight(s) + weight > cargoCapacity(s)) return "Van is full";
   return null;
+}
+
+/** What a stop pays for one of your items, or 0 if you can't sell here. */
+export function sellPrice(s: GameState, id: ItemId): number {
+  const def = ITEMS_BY_ID.get(id);
+  const stop = currentStop(s);
+  if (!def || def.sell <= 0 || (stop.kind !== "paradise" && stop.kind !== "hostile")) return 0;
+  const f = 0.85 + 0.3 * stableFloat(s.seed, "sell", stop.id, id);
+  const want = def.wantedAt ? (def.wantedAt === stop.kind ? 1.5 : 0.5) : 1;
+  return Math.max(1, Math.round(def.sell * f * want));
 }
 
 export function garageCost(s: GameState): number {
@@ -220,7 +245,8 @@ export function choiceView(s: GameState, choice: Choice, index: number, tags: st
   const view: ChoiceView = {
     index,
     label: choice.label,
-    visible: !choice.requires || hasLivingSkill(s, choice.requires.skill),
+    visible: (!choice.requires?.skill || hasLivingSkill(s, choice.requires.skill)) &&
+      (!choice.requires?.item || itemCount(s, choice.requires.item) > 0),
     enabled: true,
     skill,
     skilledName: skilledMember(s, skill)?.name,
@@ -242,7 +268,7 @@ export function choiceView(s: GameState, choice: Choice, index: number, tags: st
     view.reason = `Need ${choice.cost.fuel} gal`;
   } else {
     for (const [k, v] of Object.entries(choice.cost?.items ?? {}) as [ItemId, number][]) {
-      if (s.items[k] < v) { view.enabled = false; view.reason = `Need ${k === "parts" ? "spare parts" : k}`; }
+      if (itemCount(s, k) < v) { view.enabled = false; view.reason = `Need ${ITEMS_BY_ID.get(k)?.name ?? k}`; }
     }
   }
   return view;

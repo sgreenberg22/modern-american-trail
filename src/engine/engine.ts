@@ -7,11 +7,11 @@ import { travel } from "./day";
 import { choose } from "./encounter";
 import { hashString, Rng } from "./rng";
 import { fuelCapacity } from "./selectors";
-import { buy, buyUpgrade, landmarkAction, repair, rest, settle, useItem } from "./town";
+import { buy, buyUpgrade, landmarkAction, repair, rest, sell, settle, useItem } from "./town";
 import type { Action, Difficulty, GameState, ItemId, Member } from "./types";
 import { clamp, cloneForStep, log } from "./util";
 
-export const STATE_VERSION = 4;
+export const STATE_VERSION = 5;
 
 // ------------------------------------------------------------------ new game
 
@@ -37,7 +37,10 @@ export function newGame({ seed, difficulty = "normal", party, kit = "cooler", st
   const month = startMonth ?? rng.int(4, 9);
   const startKit = KITS.find(k => k.id === kit) ?? KITS[0];
 
-  const items: Record<ItemId, number> = { medkit: 0, antibiotics: 0, parts: 0, books: 0 };
+  const items: Record<ItemId, number> = {};
+  const addItems = (from: Partial<Record<ItemId, number>> | undefined) => {
+    for (const [k, v] of Object.entries(from ?? {})) items[k] = (items[k] ?? 0) + (v ?? 0);
+  };
   const rep = { resistance: 0, faithful: 0, militia: 0 };
   let money = cfg.startMoney + (startKit.money ?? 0);
   let food = cfg.startFood + (startKit.food ?? 0);
@@ -48,10 +51,10 @@ export function newGame({ seed, difficulty = "normal", party, kit = "cooler", st
     food += c.kit.food ?? 0;
     fuel += c.kit.fuel ?? 0;
     morale += c.kit.morale ?? 0;
-    for (const [k, v] of Object.entries(c.kit.items ?? {}) as [ItemId, number][]) items[k] += v;
+    addItems(c.kit.items);
     for (const [f, v] of Object.entries(c.kit.rep ?? {}) as [keyof typeof rep, number][]) rep[f] += v;
   }
-  for (const [k, v] of Object.entries(startKit.items ?? {}) as [ItemId, number][]) items[k] += v;
+  addItems(startKit.items);
 
   const members: Member[] = chosen.map(c => ({
     id: c.id, name: c.name, profession: c.profession, skill: c.skill,
@@ -86,7 +89,10 @@ export function newGame({ seed, difficulty = "normal", party, kit = "cooler", st
     flags: [],
     seenEvents: [],
     queuedEvent: null,
+    queuedDay: null,
     landmarkUsed: [],
+    seenBanter: [],
+    seenVignettes: [],
     journal: [],
     lastDay: null,
     // Start in town so the first decision is how to provision.
@@ -134,6 +140,7 @@ function step(s: GameState, a: Action, rng: Rng): boolean {
       return true;
     case "useItem": return canManage && useItem(s, a.item, a.member);
     case "buy": return atStop && buy(s, a.item);
+    case "sell": return atStop && sell(s, a.item);
     case "buyUpgrade": return phase === "town" && buyUpgrade(s, a.upgrade);
     case "repair": return phase === "town" && repair(s);
     case "rest": return phase === "town" && rest(s, rng);
@@ -143,6 +150,8 @@ function step(s: GameState, a: Action, rng: Rng): boolean {
       if (!atStop) return false;
       s.phase = { kind: "road" };
       return true;
+    default:
+      return false;
   }
 }
 

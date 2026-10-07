@@ -1,25 +1,38 @@
 // Content validation. Used by tests and by `npm run validate`.
 import { EFFECT_BOUNDS, WEATHER } from "./config";
+import { BANTER } from "./data/banter";
+import { CHARACTERS } from "./data/characters";
+import { LANDMARKS } from "./data/landmarks";
+import { CHECKPOINT_NAMES, MAJOR_STOPS } from "./data/route";
+import { CHECKPOINT_VIGNETTES, CITY_VIGNETTES } from "./data/vignettes";
 import { CONTENT_ENDINGS } from "./data/endings";
+import { ITEMS as ITEMS_LIST } from "./data/items";
 import { EVENTS } from "./data/events";
 import type { Choice, GameEvent, Outcome, Region } from "./types";
+
+const MAJOR_STOP_IDS = MAJOR_STOPS.map(s => s.id);
 
 export const REGIONS: Region[] = ["northwest", "mountain", "plains", "midwest", "south", "east"];
 const TOKENS = new Set(["{stop}", "{leader}", "{member}", "{skilled}"]);
 /** Events the engine starts directly (not via "next"), so they need no incoming link. */
 export const ENGINE_EVENTS = ["arrest", "breakdown", "on-fumes"];
 const FACTIONS = ["resistance", "faithful", "militia"];
-const ITEMS = ["medkit", "antibiotics", "parts", "books"];
+const ITEMS = ITEMS_LIST.map(i => i.id);
 const CONDITIONS = ["injured", "sick", "exhausted"];
-/** Minimum road events that can fire in each region (raised in Phase 3). */
+/** Phase 3 content targets. The validator fails below the minimums; the report shows progress to targets. */
 export const MIN_ROAD_EVENTS_PER_REGION = 10;
 export const MIN_PARADISE_EVENTS = 5;
+export const TARGETS = { standalone: 250, chains: 12, chainBeats: [3, 6] as [number, number] };
 
 export interface ContentReport {
   errors: string[];
   coverage: { region: Region; road: number; paradise: number }[];
   tags: Record<string, number>;
   total: number;
+  /** Events that can fire on their own (road or paradise), not chain beats. */
+  standalone: number;
+  /** Quest chains: a road/paradise start followed by "next" beats, with their lengths. */
+  chains: { start: string; beats: number }[];
 }
 
 export function validateContent(events: GameEvent[] = EVENTS): ContentReport {
@@ -40,13 +53,15 @@ export function validateContent(events: GameEvent[] = EVENTS): ContentReport {
     checkTokens(e.text, at, errors);
     for (const f of [...(e.conditions?.flags ?? []), ...(e.conditions?.notFlags ?? [])]) flagsRead.add(f);
     for (const w of e.conditions?.weather ?? []) if (!(w in WEATHER)) errors.push(`${at}: unknown weather "${w}"`);
+    for (const st of e.conditions?.stops ?? []) if (!MAJOR_STOP_IDS.includes(st)) errors.push(`${at}: unknown stop "${st}"`);
+    if (e.conditions?.item && !ITEMS.includes(e.conditions.item)) errors.push(`${at}: unknown item "${e.conditions.item}"`);
 
     // There must always be a way out: at least one choice with no skill requirement and no cost.
     if (!e.choices.some(c => !c.requires && !c.cost)) errors.push(`${at}: every choice is gated by a skill or a cost`);
 
     e.choices.forEach((c, i) => {
       const cat = `${at} choice ${i + 1}`;
-      checkTokens(c.label, cat, errors);
+      if (/\{[a-z]+\}/.test(c.label)) errors.push(`${cat}: choice labels can't use tokens (they aren't filled in)`);
       validateChoice(c, cat, errors);
       for (const o of allOutcomes(c)) {
         if (o.next) nextTargets.add(o.next);
@@ -78,7 +93,36 @@ export function validateContent(events: GameEvent[] = EVENTS): ContentReport {
 
   const tags: Record<string, number> = {};
   for (const e of events) for (const t of e.tags) tags[t] = (tags[t] ?? 0) + 1;
-  return { errors, coverage, tags, total: events.length };
+  // Quest chains: walk "next" links (and flag-gated paradise payoffs) from each starting beat.
+  const byId = new Map(events.map(e => [e.id, e]));
+  const nextOf = (e: GameEvent) => [...new Set(e.choices.flatMap(c => allOutcomes(c)).map(o => o.next).filter((x): x is string => !!x))];
+  const isChainStart = (e: GameEvent) => e.where !== "chain" && nextOf(e).length > 0 && !events.some(o => nextOf(o).includes(e.id));
+  const chains = events.filter(isChainStart).map(start => {
+    const seen = new Set<string>([start.id]);
+    let frontier = nextOf(start);
+    let depth = 1;
+    while (frontier.length) {
+      depth++;
+      const nxt: string[] = [];
+      for (const id of frontier) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const e = byId.get(id);
+        if (e) nxt.push(...nextOf(e));
+      }
+      frontier = nxt.filter(id => !seen.has(id));
+    }
+    // A flag-gated payoff (e.g. a delivery at a paradise) counts as a final beat.
+    const flags = new Set(start.choices.flatMap(c => allOutcomes(c)).flatMap(o => o.setFlags ?? []));
+    const payoff = events.some(e => e.where === "paradise" && e.conditions?.flags?.some(f => flags.has(f)));
+    return { start: start.id, beats: depth + (payoff ? 1 : 0) };
+  });
+  for (const c of chains) {
+    if (c.beats < TARGETS.chainBeats[0] || c.beats > TARGETS.chainBeats[1]) errors.push(`chain "${c.start}" has ${c.beats} beats (want ${TARGETS.chainBeats[0]}-${TARGETS.chainBeats[1]})`);
+  }
+  const standalone = events.filter(e => e.where !== "chain" && !events.some(o => nextOf(o).includes(e.id))).length;
+
+  return { errors, coverage, tags, total: events.length, standalone, chains };
 }
 
 function allOutcomes(c: Choice): Outcome[] {
@@ -93,7 +137,8 @@ function validateChoice(c: Choice, at: string, errors: string[]) {
     if (!c.outcomes?.length) errors.push(`${at}: no outcomes`);
     if (c.success || c.failure) errors.push(`${at}: success/failure without a check`);
   }
-  if (c.requires && c.check && c.requires.skill !== c.check.skill) errors.push(`${at}: requires and check use different skills`);
+  if (c.requires?.skill && c.check && c.requires.skill !== c.check.skill) errors.push(`${at}: requires and check use different skills`);
+  if (c.requires?.item && !ITEMS.includes(c.requires.item)) errors.push(`${at}: requires unknown item "${c.requires.item}"`);
   if (c.cost?.money !== undefined && c.cost.money <= 0) errors.push(`${at}: cost must be positive`);
   for (const k of Object.keys(c.cost?.items ?? {})) if (!ITEMS.includes(k)) errors.push(`${at}: unknown item cost "${k}"`);
   if (c.check?.faction && !FACTIONS.includes(c.check.faction)) errors.push(`${at}: unknown faction "${c.check.faction}"`);
@@ -124,4 +169,42 @@ function validateChoice(c: Choice, at: string, errors: string[]) {
 
 function checkTokens(text: string, at: string, errors: string[]) {
   for (const t of text.match(/\{[a-z]+\}/g) ?? []) if (!TOKENS.has(t)) errors.push(`${at}: unknown token ${t}`);
+}
+
+// ------------------------------------------------------------------ banter and vignettes
+
+
+export const MIN_BANTER_PER_CHARACTER = 20;
+export const MIN_VIGNETTES = 40;
+
+export interface FlavorReport { errors: string[]; banter: Record<string, number>; vignettes: number }
+
+export function validateFlavor(): FlavorReport {
+  const errors: string[] = [];
+  const banter: Record<string, number> = {};
+  const ids = new Set<string>();
+  for (const c of CHARACTERS) {
+    const lines = BANTER[c.id] ?? [];
+    banter[c.id] = lines.length;
+    if (lines.length < MIN_BANTER_PER_CHARACTER) errors.push(`banter: ${c.id} has ${lines.length} lines (need ${MIN_BANTER_PER_CHARACTER})`);
+    for (const l of lines) {
+      if (ids.has(l.id)) errors.push(`banter: duplicate id ${l.id}`);
+      ids.add(l.id);
+      for (const t of l.text.match(/\{[a-z]+\}/g) ?? []) if (t !== "{other}") errors.push(`banter ${l.id}: unknown token ${t}`);
+      if (l.when?.with && !CHARACTERS.some(x => x.id === l.when!.with)) errors.push(`banter ${l.id}: unknown character "${l.when.with}"`);
+      if (l.when?.with === c.id) errors.push(`banter ${l.id}: a character can't banter "with" themself`);
+    }
+  }
+  for (const id of Object.keys(BANTER)) if (!CHARACTERS.some(c => c.id === id)) errors.push(`banter: unknown character "${id}"`);
+
+  for (const n of CHECKPOINT_NAMES) if (!CHECKPOINT_VIGNETTES[n]) errors.push(`vignette: checkpoint "${n}" has none`);
+  for (const n of Object.keys(CHECKPOINT_VIGNETTES)) if (!CHECKPOINT_NAMES.includes(n)) errors.push(`vignette: "${n}" isn't a checkpoint name`);
+  for (const st of MAJOR_STOPS) {
+    if (st.kind === "hostile" && !LANDMARKS[st.id]) errors.push(`vignette: landmark "${st.id}" has no scene`);
+    if (st.kind !== "hostile" && !CITY_VIGNETTES[st.id]) errors.push(`vignette: city "${st.id}" has none`);
+  }
+  for (const [k, v] of Object.entries(CHECKPOINT_VIGNETTES)) for (const t of v.match(/\{[a-z]+\}/g) ?? []) if (t !== "{member}") errors.push(`vignette "${k}": unknown token ${t}`);
+  const vignettes = Object.keys(CHECKPOINT_VIGNETTES).length + Object.keys(CITY_VIGNETTES).length + Object.keys(LANDMARKS).length;
+  if (vignettes < MIN_VIGNETTES) errors.push(`vignettes: ${vignettes} (need ${MIN_VIGNETTES})`);
+  return { errors, banter, vignettes };
 }

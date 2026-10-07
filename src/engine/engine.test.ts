@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  applyAction, cantBuy, checkOdds, currentChoices, dailyOptions, deserialize, emptyMeta, EVENTS_BY_ID,
-  living, milesToNext, newGame, parseMeta, recordRun, score, serialize, shareText, shopPrice, shopStock,
-  type GameState
+  applyAction, cantBuy, checkBreakdown, checkOdds, currentChoices, dailyOptions, deserialize, emptyMeta, EVENTS_BY_ID,
+  ITEMS, living, milesToNext, newGame, parseMeta, recordRun, score, sellPrice, serialize, shareText, shopPrice, shopStock,
+  STATE_VERSION, type GameState
 } from ".";
 import { HEAT, VAN } from "./config";
-import { validateContent } from "./content";
+import { validateContent, validateFlavor } from "./content";
 import { EVENTS } from "./data/events";
 import { Rng, hashString } from "./rng";
 import { BOTS, playRun } from "../../scripts/bots";
@@ -144,7 +144,7 @@ describe("travel", () => {
     expect(wrecked.lastDay!.miles).toBeLessThan(fine.lastDay!.miles * 0.6);
     const fixed = applyAction({ ...base, van: 10, items: { ...base.items, parts: 1 } }, { type: "useItem", item: "parts" });
     expect(fixed.van).toBeGreaterThan(10);
-    expect(fixed.items.parts).toBe(0);
+    expect(fixed.items.parts ?? 0).toBe(0);
   });
 
   it("never writes [object Object] or raw tokens into the journal", () => {
@@ -180,6 +180,54 @@ describe("conditions and items", () => {
     const a = applyAction(base, { type: "travel" });
     const b = applyAction(sick, { type: "travel" });
     expect(b.party[0].health).toBeLessThan(a.party[0].health);
+  });
+});
+
+describe("items", () => {
+  it("there are at least 60 items, and every tool boosts a skill", () => {
+    expect(ITEMS.length).toBeGreaterThanOrEqual(60);
+    for (const i of ITEMS.filter(i => i.kind === "tool")) expect(i.passive?.bonus).toBeGreaterThan(0);
+    expect(new Set(ITEMS.map(i => i.id)).size).toBe(ITEMS.length);
+  });
+
+  it("carrying a tool raises the odds, and only the best tool for a skill counts", () => {
+    const base = onRoad("tools", { items: {} });
+    const check = { skill: "stealth" as const, difficulty: "medium" as const };
+    const none = checkOdds(base, check);
+    const one = checkBreakdown({ ...base, items: { "fake-plates": 1 } }, check);
+    const both = checkBreakdown({ ...base, items: { "fake-plates": 1, lockpicks: 1 } }, check);
+    expect(one.total).toBe(Math.min(95, none + 10));
+    expect(both.parts.filter(p => p.label === "Lockpick Set" || p.label === "Fake License Plates")).toEqual([{ label: "Lockpick Set", value: 12 }]);
+  });
+
+  it("trade goods sell for more where they're wanted", () => {
+    const town = { ...newGame({ seed: "sell" }), items: { insulin: 1, "regime-hats": 1 } };
+    // In a paradise, hats are wanted (irony) and insulin isn't.
+    expect(sellPrice(town, "regime-hats")).toBeGreaterThan(30 * 0.85 * 1.5 - 1);
+    expect(sellPrice(town, "insulin")).toBeLessThan(90 * 1.15 * 0.5 + 1);
+    const sold = applyAction(town, { type: "sell", item: "insulin" });
+    expect(sold.money).toBe(town.money + sellPrice(town, "insulin"));
+    expect(sold.items.insulin).toBeUndefined();
+  });
+
+  it("using an item applies its effect and removes it", () => {
+    const base = onRoad("use", { items: { energy: 1 } });
+    const tired = { ...base, party: base.party.map((m, k) => (k === 0 ? { ...m, conditions: ["exhausted" as const] } : m)) };
+    const after = applyAction(tired, { type: "useItem", item: "energy", member: tired.party[0].id });
+    expect(after.party[0].conditions).not.toContain("exhausted");
+    expect(after.items.energy).toBeUndefined();
+    expect(applyAction(after, { type: "useItem", item: "energy", member: tired.party[0].id })).toBe(after);
+  });
+
+  it("choices that need an item are hidden until you carry it", () => {
+    const base = onRoad("needs-item", { items: {} });
+    const ev = EVENTS.find(e => e.choices.some(c => c.requires?.item));
+    if (!ev) return; // covered once content uses it
+    const idx = ev.choices.findIndex(c => c.requires?.item);
+    const item = ev.choices[idx].requires!.item!;
+    const party = base.party.map(m => ({ ...m, skill: ev.choices[idx].requires?.skill ?? m.skill }));
+    expect(currentChoices(forceEvent({ ...base, party }, ev.id))[idx].visible).toBe(false);
+    expect(currentChoices(forceEvent({ ...base, party, items: { [item]: 1 } }, ev.id))[idx].visible).toBe(true);
   });
 });
 
@@ -247,7 +295,8 @@ describe("landmarks", () => {
 
   it("sells a small, marked-up selection", () => {
     const s = atLandmark("lm-shop", { money: 1000 });
-    expect(shopStock(s)).toEqual(["rations", "gas", "parts"]);
+    expect(shopStock(s).slice(0, 3)).toEqual(["rations", "gas", "parts"]);
+    expect(shopStock(s).length).toBe(6);
     expect(cantBuy(s, "medkit")).toBe("Not sold here");
     const town = newGame({ seed: "lm-shop" });
     expect(shopPrice(s, "gas")).toBeGreaterThan(shopPrice(town, "gas") * 0.9);
@@ -288,8 +337,9 @@ describe("events", () => {
     for (const ev of EVENTS) {
       ev.choices.forEach((c, i) => {
         const party = base.party.map(m => ({ ...m, skill: c.requires?.skill ?? m.skill }));
+        const items = { ...base.items, ...(c.requires?.item ? { [c.requires.item]: 1 } : {}), ...(c.cost?.items ?? {}), ...(ev.conditions?.item ? { [ev.conditions.item]: 1 } : {}) } as Record<string, number>;
         for (let seed = 0; seed < 20; seed++) {
-          const s = { ...forceEvent({ ...base, party }, ev.id), rng: seed };
+          const s = { ...forceEvent({ ...base, party, items }, ev.id), rng: seed };
           const after = applyAction(s, { type: "choose", choice: i });
           expect(after, `${ev.id} choice ${i}`).not.toBe(s);
           expect(["outcome", "over"]).toContain(after.phase.kind);
@@ -367,7 +417,8 @@ describe("town", () => {
     const s = newGame({ seed: "stock" });
     expect(shopStock(s)).toEqual(shopStock(newGame({ seed: "stock" })));
     expect(shopStock(s)).toEqual(expect.arrayContaining(["rations", "gas"]));
-    expect(shopStock(s).length).toBe(5);
+    expect(shopStock(s)).toEqual(expect.arrayContaining(["medkit", "parts"]));
+    expect(shopStock(s).length).toBe(10);
   });
 
   it("won't overfill the tank", () => {
@@ -414,9 +465,22 @@ describe("saves", () => {
     const r = deserialize(JSON.stringify({ format: "modern-american-trail", version: 3, state: v3 }));
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.state.version).toBe(4);
+      expect(r.state.version).toBe(STATE_VERSION);
       expect(r.state.fuel).toBeGreaterThan(0);
       expect(r.state.party.every(m => Array.isArray(m.conditions))).toBe(true);
+    }
+  });
+
+  it("migrates a Phase 2 (v4) save, dropping empty item slots", () => {
+    const v5 = newGame({ seed: "migrate-v4" });
+    const { seenBanter, seenVignettes, ...rest } = v5;
+    void seenBanter; void seenVignettes;
+    const v4 = { ...rest, version: 4, items: { medkit: 1, antibiotics: 0, parts: 0, books: 0 } };
+    const r = deserialize(JSON.stringify({ format: "modern-american-trail", version: 4, state: v4 }));
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.state.items).toEqual({ medkit: 1 });
+      expect(r.state.seenBanter).toEqual([]);
     }
   });
 
@@ -480,7 +544,9 @@ describe("meta: unlocks and Daily Run", () => {
     const text = shareText(states[states.length - 1]);
     expect(text.split("\n").length).toBe(4);
     expect(text).toMatch(/Score \d/);
-    for (const e of EVENTS) expect(text).not.toContain(e.title);
+    // No event titles leak (compared as whole lines/phrases; ending titles are allowed).
+    const lines = text.split("\n").flatMap(l => l.split(" · ")).map(l => l.trim());
+    for (const e of EVENTS) expect(lines).not.toContain(e.title);
   });
 
   it("corrupt meta falls back to a fresh record", () => {
@@ -492,6 +558,32 @@ describe("meta: unlocks and Daily Run", () => {
 describe("content", () => {
   it("passes the validator", () => {
     expect(validateContent().errors).toEqual([]);
+    expect(validateFlavor().errors).toEqual([]);
+  });
+
+  it("quiet days get banter from living members, and checkpoints get a scene once", () => {
+    const states = playThrough("banter-run");
+    const days = states.map(s => s.lastDay).filter((d, k, a) => d && a.indexOf(d) === k);
+    expect(days.some(d => d!.banter)).toBe(true);
+    const scenes = days.filter(d => d!.vignette).map(d => d!.vignette!.title);
+    expect(scenes.length).toBeGreaterThan(3);
+    expect(new Set(scenes).size).toBe(scenes.length);
+    for (const st of states) {
+      const b = st.lastDay?.banter;
+      if (b && st.lastDay!.day === st.day) expect(st.party.find(m => m.name === b.name)?.alive).toBe(true);
+    }
+  });
+
+  it("banter never names someone who isn't in the party", () => {
+    const names = new Set(["Alex", "Sam", "Jordan", "Casey", "Taylor", "Morgan", "Riley", "Jessie", "Pat", "Quinn", "Robin"]);
+    for (const seed of ["b1", "b2", "b3"]) {
+      const last = playThrough(seed).at(-1)!;
+      const party = new Set(last.party.map(m => m.name));
+      for (const j of last.journal) {
+        if (!names.has(j.title)) continue;
+        for (const n of names) if (!party.has(n)) expect(j.text, `${j.title}: ${j.text}`).not.toContain(`${n} `);
+      }
+    }
   });
 
   it("the validator rejects content that tries to win the game", () => {

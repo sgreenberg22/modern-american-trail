@@ -1,11 +1,11 @@
 // Stops: shopping, upgrades, repairs, resting, settling down, landmark actions, and using items.
-import { HEAT, RULES, VAN } from "./config";
+import { HEAT, RULES } from "./config";
 import { endOfDay } from "./day";
 import { LANDMARKS } from "./data/landmarks";
-import { ITEM_USES, SHOP_ITEMS, UPGRADES } from "./data/items";
+import { ITEMS_BY_ID, SHOP_ITEMS, UPGRADES } from "./data/items";
 import { render } from "./encounter";
 import type { Rng } from "./rng";
-import { cantBuy, checkOdds, currentStop, garageCost, living, shopPrice, skilledMember } from "./selectors";
+import { cantBuy, checkOdds, currentStop, fuelCapacity, garageCost, itemCount, living, sellPrice, shopPrice, skilledMember } from "./selectors";
 import type { Delta, GameState, ItemId, LandmarkActionId } from "./types";
 import { addHeat, checkWipe, clamp, finish, log, round1 } from "./util";
 
@@ -16,7 +16,7 @@ export function buy(s: GameState, itemId: string): boolean {
   s.money -= price;
   if (item.food) s.food = round1(s.food + item.food);
   if (item.fuel) s.fuel = round1(s.fuel + item.fuel);
-  if (item.item) s.items[item.item] += 1;
+  if (item.item) s.items[item.item] = itemCount(s, item.item) + 1;
   log(s, { title: "Market", text: `Bought ${item.name} for $${price}.` });
   return true;
 }
@@ -57,36 +57,42 @@ export function settle(s: GameState): boolean {
 }
 
 export function useItem(s: GameState, item: ItemId, memberId?: string): boolean {
-  if (!ITEM_USES[item] || s.items[item] <= 0) return false;
-  const target = ITEM_USES[item].targeted ? s.party.find(m => m.id === memberId && m.alive) : undefined;
-  if (ITEM_USES[item].targeted && !target) return false;
+  const def = ITEMS_BY_ID.get(item);
+  const use = def?.use;
+  if (!def || !use || itemCount(s, item) <= 0) return false;
+  const target = use.targeted ? s.party.find(m => m.id === memberId && m.alive) : undefined;
+  if (use.targeted && !target) return false;
+  // Don't let people waste repair items on a perfect van or gas on a full tank.
+  const onlyVan = use.van && !use.health && !use.morale && !use.food && !use.fuel;
+  if (onlyVan && s.van >= 100) return false;
+  if (use.fuel && !use.health && !use.morale && s.fuel >= fuelCapacity(s)) return false;
 
-  let text = "";
-  switch (item) {
-    case "medkit":
-      target!.health = clamp(target!.health + 25, 0, 100);
-      target!.conditions = target!.conditions.filter(c => c !== "injured");
-      text = `${target!.name} gets patched up.`;
-      break;
-    case "antibiotics":
-      target!.health = clamp(target!.health + 10, 0, 100);
-      target!.conditions = target!.conditions.filter(c => c !== "sick");
-      text = `${target!.name} takes the full course, as directed by nobody.`;
-      break;
-    case "parts": {
-      if (s.van >= 100) return false;
-      const mech = living(s).some(m => m.skill === "mechanical");
-      s.van = clamp(s.van + VAN.partsRepair + (mech ? VAN.mechanicPartsBonus : 0), 0, 100);
-      text = mech ? "Your mechanic installs the parts properly." : "You install the parts, mostly where they go.";
-      break;
-    }
-    case "books":
-      for (const m of living(s)) m.morale = clamp(m.morale + 15, 0, 100);
-      text = "Everyone reads something with more than one point of view. Spirits lift.";
-      break;
+  const who = target ? [target] : living(s);
+  for (const m of who) {
+    if (use.health) m.health = clamp(m.health + use.health, 0, 100);
+    if (use.morale) m.morale = clamp(m.morale + use.morale, 0, 100);
+    if (use.cure) m.conditions = m.conditions.filter(c => c !== use.cure);
   }
-  s.items[item] -= 1;
-  log(s, { title: ITEM_USES[item].name, text });
+  if (use.food) s.food = round1(s.food + use.food);
+  if (use.fuel) s.fuel = round1(clamp(s.fuel + use.fuel, 0, fuelCapacity(s)));
+  if (use.van) {
+    const mech = living(s).some(m => m.skill === "mechanical");
+    s.van = clamp(s.van + use.van + (mech ? use.vanMechanic ?? 0 : 0), 0, 100);
+  }
+  if (use.heat) addHeat(s, use.heat);
+  s.items[item] = itemCount(s, item) - 1;
+  if (s.items[item] <= 0) delete s.items[item];
+  log(s, { title: def.name, text: use.text.replaceAll("{target}", target?.name ?? "Everyone").replaceAll("{member}", (target ?? living(s)[0])?.name ?? "Someone") });
+  return true;
+}
+
+export function sell(s: GameState, item: ItemId): boolean {
+  const price = sellPrice(s, item);
+  if (price <= 0 || itemCount(s, item) <= 0) return false;
+  s.money += price;
+  s.items[item] = itemCount(s, item) - 1;
+  if (s.items[item] <= 0) delete s.items[item];
+  log(s, { title: "Sold", text: `Sold ${ITEMS_BY_ID.get(item)!.name} for $${price}.` });
   return true;
 }
 
@@ -132,7 +138,7 @@ export function landmarkAction(s: GameState, action: LandmarkActionId, rng: Rng)
       if (success) {
         s.food = round1(s.food + 15);
         deltas.push({ label: "Food", value: 15 });
-        if (rng.chance(0.5)) { s.items.parts += 1; deltas.push({ label: "Spare parts", value: 1 }); }
+        if (rng.chance(0.5)) { s.items.parts = itemCount(s, "parts") + 1; deltas.push({ label: "Spare Parts", value: 1 }); }
       } else {
         if (!member.conditions.includes("injured")) member.conditions.push("injured");
         member.health = clamp(member.health - 8, 0, 100);

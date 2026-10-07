@@ -3,8 +3,9 @@ import { DIFFICULTY, RULES } from "./config";
 import { endOfDay } from "./day";
 import { EVENTS } from "./data/events";
 import type { Rng } from "./rng";
+import { ITEMS_BY_ID } from "./data/items";
 import {
-  calendar, checkOdds, choiceView, EVENTS_BY_ID, fuelCapacity, hasLivingSkill, leader, living, skilledMember
+  calendar, checkOdds, choiceView, EVENTS_BY_ID, fuelCapacity, hasLivingSkill, itemCount, leader, living, skilledMember
 } from "./selectors";
 import type { AfterEvent, Delta, Effects, EventConditions, Faction, GameEvent, GameState, ItemId, Outcome, Stop } from "./types";
 import { addHeat, checkWipe, clamp, finish, log, markDeaths, round1, setFlag } from "./util";
@@ -26,6 +27,8 @@ export function conditionsMet(s: GameState, c: EventConditions | undefined): boo
   if (c.seasons && !c.seasons.includes(calendar(s).season)) return false;
   if (c.maxVan !== undefined && s.van > c.maxVan) return false;
   if (c.maxFuel !== undefined && s.fuel > c.maxFuel) return false;
+  if (c.stops && !c.stops.includes(s.stops[s.stopIndex].id)) return false;
+  if (c.item && itemCount(s, c.item) <= 0) return false;
   return true;
 }
 
@@ -84,8 +87,9 @@ export function choose(s: GameState, index: number, rng: Rng): boolean {
   if (choice.cost?.food) { s.food = round1(s.food - choice.cost.food); deltas.push({ label: "Food", value: -choice.cost.food }); }
   if (choice.cost?.fuel) { s.fuel = round1(s.fuel - choice.cost.fuel); deltas.push({ label: "Gas", value: -choice.cost.fuel, unit: "gal" }); }
   for (const [k, v] of Object.entries(choice.cost?.items ?? {}) as [ItemId, number][]) {
-    s.items[k] -= v;
-    deltas.push({ label: k === "parts" ? "Spare parts" : k[0].toUpperCase() + k.slice(1), value: -v });
+    s.items[k] = itemCount(s, k) - v;
+    if (s.items[k] <= 0) delete s.items[k];
+    deltas.push({ label: ITEMS_BY_ID.get(k)?.name ?? k, value: -v });
   }
 
   let success: boolean | undefined;
@@ -103,7 +107,10 @@ export function choose(s: GameState, index: number, rng: Rng): boolean {
 
   for (const f of outcome.setFlags ?? []) setFlag(s, f);
   if (outcome.clearFlags) s.flags = s.flags.filter(f => !outcome.clearFlags!.includes(f));
-  if (outcome.next) s.queuedEvent = outcome.next;
+  if (outcome.next) {
+    s.queuedEvent = outcome.next;
+    s.queuedDay = s.day + (outcome.nextIn ?? 1);
+  }
 
   log(s, { title: pending.title, text: `${choice.label}. ${text}`, deltas });
   for (const d of deaths) log(s, { title: "Loss", text: `${d} did not make it.` });
@@ -175,8 +182,10 @@ export function applyEffects(s: GameState, rng: Rng, e: Effects | undefined, mem
     deltas.push({ label: `${f[0].toUpperCase()}${f.slice(1)} rep`, value: v });
   }
   for (const [k, v] of Object.entries(e.items ?? {}) as [ItemId, number][]) {
-    s.items[k] = Math.max(0, s.items[k] + v);
-    deltas.push({ label: k === "parts" ? "Spare parts" : k[0].toUpperCase() + k.slice(1), value: v });
+    const before = itemCount(s, k);
+    s.items[k] = Math.max(0, before + v);
+    if (s.items[k] <= 0) delete s.items[k];
+    if (itemCount(s, k) !== before) deltas.push({ label: ITEMS_BY_ID.get(k)?.name ?? k, value: itemCount(s, k) - before });
   }
   if (e.condition && target && !target.conditions.includes(e.condition)) {
     target.conditions.push(e.condition);

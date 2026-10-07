@@ -20,6 +20,8 @@ export function cloneForStep(s: GameState): GameState {
     flags: [...s.flags],
     seenEvents: [...s.seenEvents],
     landmarkUsed: [...s.landmarkUsed],
+    seenBanter: [...s.seenBanter],
+    seenVignettes: [...s.seenVignettes],
     journal: [...s.journal],
     stats: { ...s.stats }
   };

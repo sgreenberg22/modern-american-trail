@@ -1,4 +1,5 @@
-import { CalendarDays, Car, CloudRain, DollarSign, Fuel, MapPin, Siren, Wheat } from "lucide-react";
+import { CalendarDays, Car, CloudRain, DollarSign, Fuel, MapPin, Radio, Siren, Wheat } from "lucide-react";
+import { useHeadline } from "../flavor";
 import {
   calendar, currentStop, daysOfFood, HEAT, milesToNext, nextStop, rangeMiles, totalRouteMiles, WEATHER, type GameState
 } from "../../engine";
@@ -14,6 +15,7 @@ export function Hud({ state }: { state: GameState }) {
   const atStop = ph.kind === "town" || ph.kind === "landmark" || ((ph.kind === "event" || ph.kind === "outcome") && ph.then !== "road");
   const cal = calendar(state);
   const wanted = state.heat >= HEAT.wanted;
+  const headline = useHeadline(state);
 
   return (
     <header className="hud" aria-label="Status">
@@ -53,6 +55,9 @@ export function Hud({ state }: { state: GameState }) {
           </dd>
         </div>
       </dl>
+      <p className="ticker" aria-label="News ticker">
+        <Radio size={12} aria-hidden /> <span className="ticker-label">{headline.text.startsWith("COMMUNITY RADIO") ? "" : "STATE NEWS"}</span> {headline.text}
+      </p>
     </header>
   );
 }
