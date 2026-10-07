@@ -5,7 +5,7 @@ import {
   STATE_VERSION, type GameState
 } from ".";
 import { HEAT, VAN } from "./config";
-import { validateContent } from "./content";
+import { validateContent, validateFlavor } from "./content";
 import { EVENTS } from "./data/events";
 import { Rng, hashString } from "./rng";
 import { BOTS, playRun } from "../../scripts/bots";
@@ -558,6 +558,32 @@ describe("meta: unlocks and Daily Run", () => {
 describe("content", () => {
   it("passes the validator", () => {
     expect(validateContent().errors).toEqual([]);
+    expect(validateFlavor().errors).toEqual([]);
+  });
+
+  it("quiet days get banter from living members, and checkpoints get a scene once", () => {
+    const states = playThrough("banter-run");
+    const days = states.map(s => s.lastDay).filter((d, k, a) => d && a.indexOf(d) === k);
+    expect(days.some(d => d!.banter)).toBe(true);
+    const scenes = days.filter(d => d!.vignette).map(d => d!.vignette!.title);
+    expect(scenes.length).toBeGreaterThan(3);
+    expect(new Set(scenes).size).toBe(scenes.length);
+    for (const st of states) {
+      const b = st.lastDay?.banter;
+      if (b && st.lastDay!.day === st.day) expect(st.party.find(m => m.name === b.name)?.alive).toBe(true);
+    }
+  });
+
+  it("banter never names someone who isn't in the party", () => {
+    const names = new Set(["Alex", "Sam", "Jordan", "Casey", "Taylor", "Morgan", "Riley", "Jessie", "Pat", "Quinn", "Robin"]);
+    for (const seed of ["b1", "b2", "b3"]) {
+      const last = playThrough(seed).at(-1)!;
+      const party = new Set(last.party.map(m => m.name));
+      for (const j of last.journal) {
+        if (!names.has(j.title)) continue;
+        for (const n of names) if (!party.has(n)) expect(j.text, `${j.title}: ${j.text}`).not.toContain(`${n} `);
+      }
+    }
   });
 
   it("the validator rejects content that tries to win the game", () => {

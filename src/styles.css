@@ -235,3 +235,10 @@ fieldset { border: 0; padding: 0; margin: 0 0 16px; min-width: 0; }
 .hud-sub { display: block; font-size: 0.75rem; }
 .kind-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 10px 0 6px; }
 .good-text { color: var(--good); }
+
+/* ---------- Phase 3: vignettes and banter */
+.vignette { border-left: 3px solid var(--accent); padding: 4px 0 4px 12px; margin: 0 0 12px; }
+.vignette h3 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); margin: 0 0 4px; }
+.vignette p { margin: 0; color: var(--text); }
+.vignette-text { color: var(--muted); font-style: italic; }
+.banter { margin: 0 0 12px; padding: 10px 12px; background: var(--panel-2); border-radius: 10px; font-size: 0.95rem; }

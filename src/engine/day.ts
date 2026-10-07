@@ -1,6 +1,7 @@
 // A day on the road: weather, driving, fuel, wear, food, health, conditions, arrival.
 import { CONDITIONS, DIFFICULTY, HEAT, PACE, RATIONS, RULES, VAN, WEATHER, WEATHER_ODDS } from "./config";
 import { conditionsMet, pickEvent, startEvent } from "./encounter";
+import { BANTER_CHANCE, checkpointVignette, pickBanter } from "./flavor";
 import type { Rng } from "./rng";
 import { averageHealth, calendar, currentStop, EVENTS_BY_ID, fuelCapacity, living, nextStop } from "./selectors";
 import type { Condition, GameEvent, GameState, Stop, Weather } from "./types";
@@ -90,6 +91,8 @@ export function travel(s: GameState, rng: Rng): boolean {
     deaths: day.deaths, newConditions: day.newConditions, banter: null, vignette: null
   };
 
+  s.lastDay.vignette = checkpointVignette(s, passed, rng);
+
   const lines = [`Drove ${moved} miles${s.weather !== "clear" ? ` through ${wx.label.toLowerCase()}` : ""}.`];
   if (passed.length) lines.push(`Passed ${passed.map(p => p.name).join(" and ")}.`);
   if (outOfFuel) lines.push("Ran out of gas and finished the day on foot.");
@@ -137,8 +140,19 @@ export function travel(s: GameState, rng: Rng): boolean {
   if (!ev && checkpoint) ev = pickEvent(s, rng, "road", checkpoint.region, "checkpoint");
   if (!ev && rng.chance(cfg.eventChance)) ev = pickEvent(s, rng, "road", heading.region);
 
-  if (ev) startEvent(s, rng, ev, (checkpoint ?? heading).name, "road");
-  else s.phase = { kind: "road" };
+  if (ev) {
+    startEvent(s, rng, ev, (checkpoint ?? heading).name, "road");
+  } else {
+    s.phase = { kind: "road" };
+    // Quiet day: someone talks.
+    if (rng.chance(BANTER_CHANCE)) {
+      const banter = pickBanter(s, rng);
+      if (banter) {
+        s.lastDay = { ...s.lastDay, banter };
+        log(s, { title: banter.name, text: banter.text });
+      }
+    }
+  }
   return true;
 }
 

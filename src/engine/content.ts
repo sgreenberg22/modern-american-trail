@@ -1,11 +1,16 @@
 // Content validation. Used by tests and by `npm run validate`.
 import { EFFECT_BOUNDS, WEATHER } from "./config";
+import { BANTER } from "./data/banter";
+import { CHARACTERS } from "./data/characters";
+import { LANDMARKS } from "./data/landmarks";
+import { CHECKPOINT_NAMES, MAJOR_STOPS } from "./data/route";
+import { CHECKPOINT_VIGNETTES, CITY_VIGNETTES } from "./data/vignettes";
 import { CONTENT_ENDINGS } from "./data/endings";
 import { ITEMS as ITEMS_LIST } from "./data/items";
-import { MAJOR_STOPS } from "./data/route";
-const MAJOR_STOP_IDS = MAJOR_STOPS.map(s => s.id);
 import { EVENTS } from "./data/events";
 import type { Choice, GameEvent, Outcome, Region } from "./types";
+
+const MAJOR_STOP_IDS = MAJOR_STOPS.map(s => s.id);
 
 export const REGIONS: Region[] = ["northwest", "mountain", "plains", "midwest", "south", "east"];
 const TOKENS = new Set(["{stop}", "{leader}", "{member}", "{skilled}"]);
@@ -164,4 +169,42 @@ function validateChoice(c: Choice, at: string, errors: string[]) {
 
 function checkTokens(text: string, at: string, errors: string[]) {
   for (const t of text.match(/\{[a-z]+\}/g) ?? []) if (!TOKENS.has(t)) errors.push(`${at}: unknown token ${t}`);
+}
+
+// ------------------------------------------------------------------ banter and vignettes
+
+
+export const MIN_BANTER_PER_CHARACTER = 20;
+export const MIN_VIGNETTES = 40;
+
+export interface FlavorReport { errors: string[]; banter: Record<string, number>; vignettes: number }
+
+export function validateFlavor(): FlavorReport {
+  const errors: string[] = [];
+  const banter: Record<string, number> = {};
+  const ids = new Set<string>();
+  for (const c of CHARACTERS) {
+    const lines = BANTER[c.id] ?? [];
+    banter[c.id] = lines.length;
+    if (lines.length < MIN_BANTER_PER_CHARACTER) errors.push(`banter: ${c.id} has ${lines.length} lines (need ${MIN_BANTER_PER_CHARACTER})`);
+    for (const l of lines) {
+      if (ids.has(l.id)) errors.push(`banter: duplicate id ${l.id}`);
+      ids.add(l.id);
+      for (const t of l.text.match(/\{[a-z]+\}/g) ?? []) if (t !== "{other}") errors.push(`banter ${l.id}: unknown token ${t}`);
+      if (l.when?.with && !CHARACTERS.some(x => x.id === l.when!.with)) errors.push(`banter ${l.id}: unknown character "${l.when.with}"`);
+      if (l.when?.with === c.id) errors.push(`banter ${l.id}: a character can't banter "with" themself`);
+    }
+  }
+  for (const id of Object.keys(BANTER)) if (!CHARACTERS.some(c => c.id === id)) errors.push(`banter: unknown character "${id}"`);
+
+  for (const n of CHECKPOINT_NAMES) if (!CHECKPOINT_VIGNETTES[n]) errors.push(`vignette: checkpoint "${n}" has none`);
+  for (const n of Object.keys(CHECKPOINT_VIGNETTES)) if (!CHECKPOINT_NAMES.includes(n)) errors.push(`vignette: "${n}" isn't a checkpoint name`);
+  for (const st of MAJOR_STOPS) {
+    if (st.kind === "hostile" && !LANDMARKS[st.id]) errors.push(`vignette: landmark "${st.id}" has no scene`);
+    if (st.kind !== "hostile" && !CITY_VIGNETTES[st.id]) errors.push(`vignette: city "${st.id}" has none`);
+  }
+  for (const [k, v] of Object.entries(CHECKPOINT_VIGNETTES)) for (const t of v.match(/\{[a-z]+\}/g) ?? []) if (t !== "{member}") errors.push(`vignette "${k}": unknown token ${t}`);
+  const vignettes = Object.keys(CHECKPOINT_VIGNETTES).length + Object.keys(CITY_VIGNETTES).length + Object.keys(LANDMARKS).length;
+  if (vignettes < MIN_VIGNETTES) errors.push(`vignettes: ${vignettes} (need ${MIN_VIGNETTES})`);
+  return { errors, banter, vignettes };
 }

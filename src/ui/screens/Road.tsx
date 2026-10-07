@@ -38,6 +38,15 @@ export function Road({ state, dispatch }: { state: GameState; dispatch: (a: Acti
       ) : (
         <p className="prose">The van is packed. Vermont is a long way east.</p>
       )}
+      {today?.vignette && (
+        <aside className="vignette">
+          <h3>{today.vignette.title}</h3>
+          <p>{today.vignette.text}</p>
+        </aside>
+      )}
+      {today?.banter && (
+        <blockquote className="banter"><strong>{today.banter.name}:</strong> {today.banter.text}</blockquote>
+      )}
       {next && (
         <p className="muted">
           Next: <strong>{next.name}</strong>, about {eta} day{eta === 1 ? "" : "s"} away.
