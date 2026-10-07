@@ -30,18 +30,18 @@ export interface DifficultyConfig {
 // bad and good outcomes per difficulty and should stay close to 1.0.
 export const DIFFICULTY: Record<Difficulty, DifficultyConfig> = {
   easy: {
-    label: "Easy", startMoney: 330, startFood: 50, startFuel: 22, milesPerDay: 135, milesJitter: 20, foodPerPerson: 1.65,
-    healthDrain: [0, 3], moraleDrain: [0, 2], eventChance: 0.55, checkBonus: 5, cityBonus: [65, 110],
+    label: "Easy", startMoney: 290, startFood: 50, startFuel: 22, milesPerDay: 135, milesJitter: 20, foodPerPerson: 1.95,
+    healthDrain: [1, 4], moraleDrain: [0, 2], eventChance: 0.55, checkBonus: 5, cityBonus: [65, 110],
     harshness: 0.97, generosity: 1.05, scoreMult: 1
   },
   normal: {
-    label: "Normal", startMoney: 290, startFood: 50, startFuel: 20, milesPerDay: 130, milesJitter: 22, foodPerPerson: 1.95,
-    healthDrain: [0, 2], moraleDrain: [0, 3], eventChance: 0.6, checkBonus: 0, cityBonus: [60, 100],
+    label: "Normal", startMoney: 290, startFood: 50, startFuel: 20, milesPerDay: 130, milesJitter: 22, foodPerPerson: 1.9,
+    healthDrain: [1, 4], moraleDrain: [1, 3], eventChance: 0.6, checkBonus: 0, cityBonus: [60, 100],
     harshness: 1, generosity: 1, scoreMult: 1.5
   },
   hard: {
-    label: "Hard", startMoney: 285, startFood: 45, startFuel: 18, milesPerDay: 125, milesJitter: 25, foodPerPerson: 2.0,
-    healthDrain: [0, 2], moraleDrain: [0, 3], eventChance: 0.65, checkBonus: -5, cityBonus: [55, 95],
+    label: "Hard", startMoney: 285, startFood: 45, startFuel: 18, milesPerDay: 125, milesJitter: 25, foodPerPerson: 2.1,
+    healthDrain: [1, 4], moraleDrain: [1, 3], eventChance: 0.65, checkBonus: -5, cityBonus: [55, 95],
     harshness: 1.03, generosity: 0.97, scoreMult: 2.5
   }
 };
