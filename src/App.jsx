@@ -13,48 +13,18 @@ const JAIL_MAX_DAYS = 5;         // ✅ Guaranteed release by this day-in-jail c
 const JAIL_ESCAPE_BASE = 0.35;   // ✅ Base escape chance on first jail day
 
 /* ------------------------------------------------------------------ */
-/* Server helpers (Cloudflare Pages Functions)                        */
+/* Server helper: the model and prompt are chosen server-side.          */
 /* ------------------------------------------------------------------ */
-async function chat({ model, messages, max_tokens = 700, temperature = 0.7 }) {
-  const res = await fetch("/api/chat", {
+async function fetchAIEvent(context) {
+  const res = await fetch("/api/event", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model, messages, max_tokens, temperature })
+    body: JSON.stringify({ context })
   });
-  const data = await res.json();
-  if (!res.ok) {
-    const msg = data?.error?.message || data?.error || res.statusText;
-    throw new Error(msg || "OpenRouter error");
-  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data?.event) throw new Error(data?.error || `HTTP ${res.status}`);
   return data;
 }
-
-function parseJSONFromText(text) {
-  if (!text || typeof text !== "string") throw new Error("Empty response");
-  let t = text.trim();
-  t = t.replace(/```json|```/gi, "").trim();
-  try {
-    return JSON.parse(t);
-  } catch {
-    const first = t.indexOf("{");
-    const last = t.lastIndexOf("}");
-    if (first >= 0 && last > first) {
-      try { return JSON.parse(t.slice(first, last + 1)); } catch {}
-    }
-    throw new Error("Could not parse JSON from model response");
-  }
-}
-
-/* ------------------------------------------------------------------ */
-/* Free models (fallback if /api/models not configured)                */
-/* ------------------------------------------------------------------ */
-const FALLBACK_FREE_MODELS = [
-  { id: "mistralai/mistral-7b-instruct:free", name: "Mistral 7B (Free)", healthy: true },
-  { id: "huggingfaceh4/zephyr-7b-beta:free", name: "Zephyr 7B (Free)", healthy: true },
-  { id: "microsoft/phi-3-mini-128k-instruct:free", name: "Phi-3 Mini 128k (Free)", healthy: true },
-  { id: "qwen/qwen-2-7b-instruct:free", name: "Qwen 2 7B (Free)", healthy: true },
-  { id: "openchat/openchat-7b:free", name: "OpenChat 7B (Free)", healthy: true }
-];
 
 /* ------------------------------------------------------------------ */
 /* Game setup                                                          */
@@ -149,8 +119,7 @@ function sanitizeEffect(raw = {}) {
   };
 }
 
-function newGameState(defaultModelId) {
-  const defaultModel = defaultModelId || FALLBACK_FREE_MODELS[0].id;
+function newGameState() {
   const partyMembers = shuffle([...CHARACTER_POOL]).slice(0, 3);
 
   const state = {
@@ -167,7 +136,6 @@ function newGameState(defaultModelId) {
     gameLog: [],
     currentEvent: null,
     isLoading: false,
-    selectedModel: defaultModel,
     showSettings: false,
     showShop: false,
     showMap: false,
@@ -194,7 +162,7 @@ function newGameState(defaultModelId) {
       aiEventCount: 0,
       hardcodedEventCount: 0,
       lastCallTime: null,
-      currentModel: defaultModel,
+      currentModel: null,
       lastError: null
     }
   };
@@ -361,16 +329,9 @@ function loadLocal() {
 /* App                                                                 */
 /* ------------------------------------------------------------------ */
 export default function App() {
-  const [models, setModels] = useState(FALLBACK_FREE_MODELS);
-  const [modelsLoading, setModelsLoading] = useState(true);
   const fileInputRef = useRef(null);
 
-  const initialModelId = useMemo(() => {
-    const healthy = models.find(m => m.healthy) || models[0];
-    return healthy?.id || FALLBACK_FREE_MODELS[0].id;
-  }, [models]);
-
-  const [g, setG] = useState(() => newGameState(initialModelId));
+  const [g, setG] = useState(() => newGameState());
 
   const currentLocation = g.locations[g.currentLocationIndex];
   const progressPct = Math.round((g.currentLocationIndex / (g.locations.length - 1)) * 100);
@@ -385,95 +346,6 @@ export default function App() {
   }, [g.health, g.supplies, g.milesPerDay]);
 
   const etaDays = g.distanceToNext > 0 ? Math.ceil(g.distanceToNext / avgMilesPerDay) : 0;
-
-  useEffect(() => {
-    (async () => {
-      try {
-        setModelsLoading(true);
-        const r = await fetch("/api/models");
-        const j = await r.json().catch(() => ({}));
-        const list = Array.isArray(j?.models) ? j.models : [];
-        if (list.length > 0) {
-          const healthy = list.filter(m => m.healthy);
-          const next = healthy.length > 0 ? healthy : list;
-          setModels(next);
-          setG(prev => {
-            const has = next.some(m => m.id === prev.selectedModel);
-            const nextId = has ? prev.selectedModel : (next.find(m => m.healthy)?.id || next[0].id);
-            return { ...prev, selectedModel: nextId, apiStats: { ...prev.apiStats, currentModel: nextId } };
-          });
-        }
-      } catch {
-        // keep fallback
-      } finally {
-        setModelsLoading(false);
-      }
-    })();
-  }, []);
-
-  useEffect(() => {
-    setG(prev => {
-      if (!prev.selectedModel) {
-        const healthy = models.find(m => m.healthy) || models[0];
-        const id = healthy?.id || FALLBACK_FREE_MODELS[0].id;
-        return { ...prev, selectedModel: id, apiStats: { ...prev.apiStats, currentModel: id } };
-      }
-      return prev;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [models]);
-
-  async function testAPIConnection() {
-    setG(prev => ({ ...prev, apiStats: { ...prev.apiStats, lastError: "Testing connection..." } }));
-    try {
-      const data = await chat({
-        model: g.selectedModel,
-        messages: [{ role: "user", content: "Respond with only: OK" }],
-        max_tokens: 5,
-        temperature: 0
-      });
-      const text = data?.choices?.[0]?.message?.content?.trim() || "";
-      const ok = /^OK$/i.test(text);
-      setG(prev => ({
-        ...prev,
-        apiStats: {
-          ...prev.apiStats,
-          connected: ok,
-          lastError: ok ? null : `Unexpected response: ${text || "(empty)"}`,
-          totalCalls: prev.apiStats.totalCalls + 1,
-          successfulCalls: prev.apiStats.successfulCalls + (ok ? 1 : 0),
-          failedCalls: prev.apiStats.failedCalls + (ok ? 0 : 1),
-          lastCallTime: new Date().toLocaleTimeString(),
-          currentModel: g.selectedModel,
-          totalTokensUsed: prev.apiStats.totalTokensUsed + (data?.usage?.total_tokens || 5),
-          promptTokens: prev.apiStats.promptTokens + (data?.usage?.prompt_tokens || 0),
-          completionTokens: prev.apiStats.completionTokens + (data?.usage?.completion_tokens || 0)
-        }
-      }));
-    } catch (e) {
-      const msg = e?.message || "Connection failed";
-      const noEndpoints = /no endpoints found|no endpoint/i.test(msg);
-      setG(prev => {
-        let nextModel = prev.selectedModel;
-        const idx = models.findIndex(m => m.id === prev.selectedModel);
-        if (noEndpoints && models.length > 1) {
-          nextModel = models[(idx + 1) % models.length].id;
-        }
-        return {
-          ...prev,
-          selectedModel: nextModel,
-          apiStats: {
-            ...prev.apiStats,
-            connected: false,
-            lastError: msg + (noEndpoints ? " (switched/try another free model)" : ""),
-            totalCalls: prev.apiStats.totalCalls + 1,
-            failedCalls: prev.apiStats.failedCalls + 1,
-            lastCallTime: new Date().toLocaleTimeString()
-          }
-        };
-      });
-    }
-  }
 
   function outcomeSummary(effect) {
     const parts = [];
@@ -596,96 +468,49 @@ export default function App() {
     return lines;
   }
 
-  // ✅ NEW: AI event generation with auto-fallback to other healthy models
+  // AI event: one server call; falls back to built-in events on any failure
   async function generateEvent() {
     setG(prev => ({ ...prev, isLoading: true, lastError: null }));
-
-    const healthyModels = models.filter(m => m.healthy);
-    if (healthyModels.length === 0) {
-      useFallbackEvent("No healthy models available.");
-      return;
-    }
-
-    const shuffledModels = shuffle([...healthyModels]);
-
-    let lastError = null;
-
-    for (const model of shuffledModels) {
-      try {
-        const stateForPrompt = "\n- Location: " + currentLocation.name + " (Type: " + currentLocation.type + ")" +
-          "\n- Day: " + g.day +
-          "\n- Health: " + g.health + "%" +
-          "\n- Morale: " + g.morale + "%" +
-          "\n- Supplies: " + g.supplies + "%" +
-          "\n- Money: $" + g.money +
-          "\n- Party: " + g.party.map(p => p.name + " (" + p.profession + ")").join(", ") +
-          "\n- Skills: " + g.skills.join(', ') +
-          "\n- Recent Log: " + g.gameLog.slice(-3).map(l => l.result).join(" | ");
-
-        const schema = "Describe the event in JSON format.\n" +
-          "- The root object must have \"title\" (string), \"description\" (string), and \"choices\" (array of objects).\n" +
-          "- Each choice object must have \"text\" (string) and \"effect\" (object).\n" +
-          "- The \"effect\" object contains outcomes like \"health\", \"morale\", \"money\", \"miles\", etc.\n" +
-          "- Example effect keys: health, morale, supplies, money, partyHealth, partyMorale, miles, milesBack, stuckDays, sendToJail, partyMemberLoss, endGame, message.\n\n" +
-          "Rules:\n" +
-          "- Be creative and avoid generic events. Create a unique, memorable, satirical scenario.\n" +
-          "- Tailor to the current location and its type, with a tone of darkly humorous satire.\n" +
-          "- Create special choices if the party has relevant skills (e.g., 'hacking', 'negotiation').\n" +
-          "- If location type is \"city\", the event MUST be supportive. This is a Liberal Paradise. Offer rewards like money or supplies, or create positive social interactions.\n" +
-          "- If location type is \"hostile\", the event MUST be dangerous and challenging. These are hostile territories.\n" +
-          "- Vary events based on the recent log to avoid repetition.\n" +
-          "- OUTPUT ONLY the JSON object. No markdown, no commentary.";
-
-        const prompt = "You are generating an impactful event for a dystopian Oregon Trail-style satire game.\n" +
-          "Current game state:\n" +
-          stateForPrompt + "\n" +
-          schema;
-
-        const data = await chat({
-          model: model.id,
-          messages: [{ role: "user", content: prompt }],
-          max_tokens: 900,
-          temperature: 0.8
-        });
-
-        const text = data?.choices?.[0]?.message?.content ?? "";
-        const eventData = parseJSONFromText(text);
-        if (!eventData?.title || !eventData?.description || !Array.isArray(eventData?.choices)) {
-          throw new Error("Event missing required fields");
+    const context = {
+      location: currentLocation.name,
+      locationType: currentLocation.type,
+      day: g.day,
+      health: g.health,
+      morale: g.morale,
+      supplies: g.supplies,
+      money: g.money,
+      party: g.party.map(p => ({ name: p.name, profession: p.profession })),
+      skills: g.skills,
+      recentLog: g.gameLog.slice(-3).map(l => l.result)
+    };
+    try {
+      const data = await fetchAIEvent(context);
+      const eventData = {
+        ...data.event,
+        choices: data.event.choices.map(c => ({ text: String(c?.text || "Choose"), effect: sanitizeEffect(c?.effect || {}) }))
+      };
+      setG(prev => ({
+        ...prev,
+        currentEvent: eventData,
+        isLoading: false,
+        apiStats: {
+          ...prev.apiStats,
+          connected: true,
+          totalCalls: prev.apiStats.totalCalls + 1,
+          successfulCalls: prev.apiStats.successfulCalls + 1,
+          aiEventCount: prev.apiStats.aiEventCount + 1,
+          totalTokensUsed: prev.apiStats.totalTokensUsed + (data?.usage?.total_tokens || 0),
+          promptTokens: prev.apiStats.promptTokens + (data?.usage?.prompt_tokens || 0),
+          completionTokens: prev.apiStats.completionTokens + (data?.usage?.completion_tokens || 0),
+          lastCallTime: new Date().toLocaleTimeString(),
+          currentModel: data.model || null,
+          lastError: null
         }
-
-        eventData.choices = eventData.choices.map(c => ({
-          text: String(c?.text || "Choose"),
-          effect: sanitizeEffect(c?.effect || {})
-        }));
-
-        setG(prev => ({
-          ...prev,
-          currentEvent: eventData,
-          isLoading: false,
-          selectedModel: model.id,
-          apiStats: {
-            ...prev.apiStats,
-            connected: true,
-            totalCalls: prev.apiStats.totalCalls + 1,
-            successfulCalls: prev.apiStats.successfulCalls + 1,
-            aiEventCount: prev.apiStats.aiEventCount + 1,
-            totalTokensUsed: prev.apiStats.totalTokensUsed + (data?.usage?.total_tokens || 0),
-            promptTokens: prev.apiStats.promptTokens + (data?.usage?.prompt_tokens || 0),
-            completionTokens: prev.apiStats.completionTokens + (data?.usage?.completion_tokens || 0),
-            lastCallTime: new Date().toLocaleTimeString(),
-            currentModel: model.id,
-            lastError: null
-          }
-        }));
-        return;
-      } catch (e) {
-        lastError = "Model " + model.id + " failed: " + e.message + ".";
-        setG(prev => ({ ...prev, apiStats: { ...prev.apiStats, failedCalls: prev.apiStats.failedCalls + 1 } }));
-      }
+      }));
+    } catch (e) {
+      setG(prev => ({ ...prev, apiStats: { ...prev.apiStats, totalCalls: prev.apiStats.totalCalls + 1, failedCalls: prev.apiStats.failedCalls + 1 } }));
+      useFallbackEvent(e?.message || "AI unavailable");
     }
-
-    useFallbackEvent(lastError || "All AI models failed.");
   }
 
   function useFallbackEvent(errorMessage) {
@@ -1005,7 +830,7 @@ export default function App() {
             <span style={{ ...chip(g.apiStats.connected ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)"), borderColor: g.apiStats.connected ? "rgba(34,197,94,0.35)" : "rgba(239,68,68,0.35)" }}>
               {g.apiStats.connected ? "🟢 AI Connected" : "🔴 Fallback/Local Logic"}
             </span>
-            <span style={chip("rgba(59,130,246,0.15)")}>Model: {g.selectedModel}</span>
+            {g.apiStats.currentModel && <span style={chip("rgba(59,130,246,0.15)")}>Model: {g.apiStats.currentModel}</span>}
             <span style={chip("rgba(250,204,21,0.15)")}>Day {g.day}</span>
             {g.jailed && (
               <span style={chip("rgba(124,45,18,0.25)")}>⛔ Jailed — Day {g.daysInJail || 0} of ≤{JAIL_MAX_DAYS}</span>
@@ -1024,7 +849,7 @@ export default function App() {
             <button title="Map" style={btn()} onClick={() => setG(p => ({ ...p, showMap: true }))}><MapIcon size={18} /></button>
             <button title="Black Market" style={btn("#1d3b2d")} onClick={() => setG(p => ({ ...p, showShop: true }))}><ShoppingCart size={18} /></button>
             <button title="Settings" style={btn("#1c2d4a")} onClick={() => setG(p => ({ ...p, showSettings: true }))}><Settings size={18} /></button>
-            <button title="New Game" style={btn("#3b1d0c")} onClick={() => setG(newGameState(models.find(m => m.healthy)?.id || models[0]?.id))}><Upload size={18} /></button>
+            <button title="New Game" style={btn("#3b1d0c")} onClick={() => setG(newGameState())}><Upload size={18} /></button>
             {/* Save/Load */}
             <button title="Export Save" style={btn("#2a1f4a")} onClick={exportSave}><Save size={18} /></button>
             <button title="Save (Local)" style={btn("#20314d")} onClick={() => saveLocal(g)}>Save Local</button>
@@ -1080,7 +905,7 @@ export default function App() {
                 : "The dystopian regime has claimed another victim. Your journey ends in the wasteland."}
             </p>
             <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", marginTop: 12 }}>
-              <button style={btn("#4a1d1d")} onClick={() => setG(newGameState(models.find(m => m.healthy)?.id || models[0]?.id))}>New Journey</button>
+              <button style={btn("#4a1d1d")} onClick={() => setG(newGameState())}>New Journey</button>
               <button style={btn("#1c2d4a")} onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>Back to Top</button>
             </div>
           </div>
@@ -1191,25 +1016,7 @@ export default function App() {
             <div style={{ ...card(), marginBottom: 12 }}>
               <div style={{ fontWeight: 700, color: "#93c5fd", marginBottom: 6 }}>AI Connection</div>
               <div style={{ display: "grid", gap: 8 }}>
-                <label>
-                  <div style={{ fontSize: 12, color: "#9aa3b2", marginBottom: 4 }}>Model (free only)</div>
-                  <select
-                    value={g.selectedModel}
-                    onChange={e => setG(p => ({ ...p, selectedModel: e.target.value, apiStats: { ...p.apiStats, currentModel: e.target.value } }))}
-                    style={{ width: "100%", padding: 12, background: "rgba(15,19,32,0.9)", color: "#e5e7eb", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12 }}
-                    disabled={modelsLoading || models.length === 0}
-                  >
-                    {models.map(m => <option key={m.id} value={m.id}>{m.name}{m.healthy ? "" : " (iffy)"}</option>)}
-                  </select>
-                  {modelsLoading && <div style={{ fontSize: 12, color: "#9aa3b2", marginTop: 6 }}>Loading free models…</div>}
-                  {!modelsLoading && models.length === 0 && (
-                    <div style={{ fontSize: 12, color: "#fca5a5", marginTop: 6 }}>
-                      No free models available right now. Using built-in fallback list.
-                    </div>
-                  )}
-                </label>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button style={btn("#1c2d4a")} onClick={testAPIConnection}>Test Connection</button>
                   <button style={btn("#3a3f52")} onClick={() => setG(p => ({
                     ...p, apiStats: { ...p.apiStats, totalCalls: 0, successfulCalls: 0, failedCalls: 0, totalTokensUsed: 0, promptTokens: 0, completionTokens: 0, aiEventCount: 0, hardcodedEventCount: 0, lastError: null }
                   }))}>
@@ -1217,7 +1024,7 @@ export default function App() {
                   </button>
                 </div>
                 <div style={{ fontSize: 12, color: "#9aa3b2" }}>
-                  Your API key is stored server-side in Cloudflare Pages and never exposed in the browser.
+                  The AI model is chosen server-side from a free-only allowlist. If it is unavailable, built-in events are used.
                 </div>
                 {g.apiStats.lastError && (
                   <div style={{ ...card(), border: "1px solid rgba(127,29,29,0.45)" }}>
