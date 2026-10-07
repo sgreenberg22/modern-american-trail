@@ -125,9 +125,11 @@ export function travel(s: GameState, rng: Rng): boolean {
   const heading = nextStop(s) ?? currentStop(s);
   const checkpoint = passed[passed.length - 1];
   let ev: GameEvent | undefined;
-  if (s.queuedEvent) {
+  // A queued beat waits until its day; if its conditions no longer hold, the chain quietly ends.
+  if (s.queuedEvent && s.day >= (s.queuedDay ?? 0)) {
     const queued = EVENTS_BY_ID.get(s.queuedEvent);
     s.queuedEvent = null;
+    s.queuedDay = null;
     if (queued && conditionsMet(s, queued.conditions)) ev = queued;
   }
   if (!ev && outOfFuel) ev = EVENTS_BY_ID.get("on-fumes");

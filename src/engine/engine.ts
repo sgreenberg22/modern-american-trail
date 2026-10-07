@@ -89,6 +89,7 @@ export function newGame({ seed, difficulty = "normal", party, kit = "cooler", st
     flags: [],
     seenEvents: [],
     queuedEvent: null,
+    queuedDay: null,
     landmarkUsed: [],
     seenBanter: [],
     seenVignettes: [],

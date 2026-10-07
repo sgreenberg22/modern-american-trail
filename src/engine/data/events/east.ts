@@ -115,9 +115,9 @@ export const EAST_EVENTS: GameEvent[] = [
     id: "md-crab-shack", title: "Crab Shack", where: "road", regions: ["east"], tags: ["food", "people"],
     text: "A crab shack on the Chesapeake with newspaper on the tables, mallets, and a hand-painted sign: ALL WELCOME (WE MEAN IT).",
     choices: [
-      { label: "Order a bushel", cost: { money: 50 }, outcomes: [{ text: "Hours of cracking, Old Bay on everything, and a table of locals who adopt you for the evening.", effects: { health: 6, morale: 15 } }] },
+      { label: "Order a bushel", cost: { money: 50 }, outcomes: [{ text: "Hours of cracking, crab seasoning on everything, and a table of locals who adopt you for the evening.", effects: { health: 6, morale: 15 } }] },
       { label: "Ask if they need help", outcomes: [{ text: "They do: a busy night. You bus tables until midnight and leave with cash and leftovers.", effects: { money: 60, food: 8, delay: 1 } }] },
-      { label: "Just smell it and keep driving", outcomes: [{ text: "Old Bay haunts the van for a hundred miles. Nobody minds." }] }
+      { label: "Just smell it and keep driving", outcomes: [{ text: "The smell of crab seasoning haunts the van for a hundred miles. Nobody minds." }] }
     ]
   },
   {

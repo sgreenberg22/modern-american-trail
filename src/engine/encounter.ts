@@ -107,7 +107,10 @@ export function choose(s: GameState, index: number, rng: Rng): boolean {
 
   for (const f of outcome.setFlags ?? []) setFlag(s, f);
   if (outcome.clearFlags) s.flags = s.flags.filter(f => !outcome.clearFlags!.includes(f));
-  if (outcome.next) s.queuedEvent = outcome.next;
+  if (outcome.next) {
+    s.queuedEvent = outcome.next;
+    s.queuedDay = s.day + (outcome.nextIn ?? 1);
+  }
 
   log(s, { title: pending.title, text: `${choice.label}. ${text}`, deltas });
   for (const d of deaths) log(s, { title: "Loss", text: `${d} did not make it.` });

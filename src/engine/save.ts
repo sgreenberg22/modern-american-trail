@@ -75,6 +75,7 @@ const GameStateSchema = z.object({
   flags: z.array(z.string()),
   seenEvents: z.array(z.string()),
   queuedEvent: z.nullable(z.string()),
+  queuedDay: z.nullable(z.number().check(z.int(), z.gte(0))),
   landmarkUsed: z.array(z.enum(LANDMARK_ACTIONS)),
   seenBanter: z.array(z.string()),
   seenVignettes: z.array(z.string()),
@@ -135,7 +136,7 @@ const MIGRATIONS: Record<number, (raw: Record<string, unknown>) => Record<string
   4: (raw) => {
     const items = Object.fromEntries(Object.entries((raw.items ?? {}) as Record<string, number>).filter(([, n]) => n > 0));
     const lastDay = raw.lastDay ? { ...(raw.lastDay as object), banter: null, vignette: null } : null;
-    return { ...raw, items, lastDay, seenBanter: [], seenVignettes: [] };
+    return { ...raw, items, lastDay, seenBanter: [], seenVignettes: [], queuedDay: raw.queuedEvent ? 0 : null };
   }
 };
 
@@ -173,7 +174,7 @@ export function deserialize(text: string): LoadResult {
   if (s.legs.length !== s.stops.length - 1 || s.stopIndex >= s.stops.length) return { ok: false, error: "This save file is damaged or was edited." };
   if (s.stopIndex < s.legs.length && s.milesIntoLeg > s.legs[s.stopIndex].miles) return { ok: false, error: "This save file is damaged or was edited." };
   if (s.phase.kind === "event" && !EVENTS_BY_ID.has(s.phase.event.eventId)) return { ok: false, error: "This save refers to an event that no longer exists." };
-  if (s.queuedEvent && !EVENTS_BY_ID.has(s.queuedEvent)) s.queuedEvent = null;
+  if (s.queuedEvent && !EVENTS_BY_ID.has(s.queuedEvent)) { s.queuedEvent = null; s.queuedDay = null; }
   // Drop items that no longer exist rather than failing the whole load.
   s.items = Object.fromEntries(Object.entries(s.items).filter(([k, n]) => ITEMS_BY_ID.has(k) && n > 0));
   return { ok: true, state: s };

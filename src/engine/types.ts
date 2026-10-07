@@ -48,8 +48,10 @@ export interface Outcome {
   effects?: Effects;
   setFlags?: string[];
   clearFlags?: string[];
-  /** Event id that fires on the next travel day (quest chains). */
+  /** Event id that fires on a later travel day (quest chains). */
   next?: string;
+  /** Days until `next` fires (default 1: the next travel day). */
+  nextIn?: number;
   /** Ends the run with an authored ending. Only endings in CONTENT_ENDINGS are allowed. */
   ending?: EndingId;
 }
@@ -242,6 +244,8 @@ export interface GameState {
   flags: string[];
   seenEvents: string[];
   queuedEvent: string | null;
+  /** Earliest day the queued event may fire. */
+  queuedDay: number | null;
   /** Landmark actions already taken at the current landmark. */
   landmarkUsed: LandmarkActionId[];
   /** Banter line ids already used this run. */

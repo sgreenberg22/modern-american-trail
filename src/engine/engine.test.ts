@@ -337,7 +337,7 @@ describe("events", () => {
     for (const ev of EVENTS) {
       ev.choices.forEach((c, i) => {
         const party = base.party.map(m => ({ ...m, skill: c.requires?.skill ?? m.skill }));
-        const items = { ...base.items, ...(c.requires?.item ? { [c.requires.item]: 1 } : {}), ...(c.cost?.items ?? {}), ...(ev.conditions?.item ? { [ev.conditions.item]: 1 } : {}) };
+        const items = { ...base.items, ...(c.requires?.item ? { [c.requires.item]: 1 } : {}), ...(c.cost?.items ?? {}), ...(ev.conditions?.item ? { [ev.conditions.item]: 1 } : {}) } as Record<string, number>;
         for (let seed = 0; seed < 20; seed++) {
           const s = { ...forceEvent({ ...base, party, items }, ev.id), rng: seed };
           const after = applyAction(s, { type: "choose", choice: i });
@@ -544,7 +544,9 @@ describe("meta: unlocks and Daily Run", () => {
     const text = shareText(states[states.length - 1]);
     expect(text.split("\n").length).toBe(4);
     expect(text).toMatch(/Score \d/);
-    for (const e of EVENTS) expect(text).not.toContain(e.title);
+    // No event titles leak (compared as whole lines/phrases; ending titles are allowed).
+    const lines = text.split("\n").flatMap(l => l.split(" · ")).map(l => l.trim());
+    for (const e of EVENTS) expect(lines).not.toContain(e.title);
   });
 
   it("corrupt meta falls back to a fresh record", () => {
